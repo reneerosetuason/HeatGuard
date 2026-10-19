@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+
+{% block title %}HeatGuard · Community Heat Watch{% endblock %}
+
+{% block content %}
+<div id="dashboardApp" class="dashboard-app">
+    <section class="page-header" aria-labelledby="pageTitle">
+        <div class="page-heading">
+            <span class="eyebrow"><i class="bi bi-broadcast" aria-hidden="true"></i> Live heat-index monitoring</span>
+            <h1 id="pageTitle">Community Heat Watch</h1>
+            <p class="page-subtitle">
+                Current heat conditions and early warnings for
+                <strong id="headingLocation">{{ initial_data.location.name }}</strong>.
+            </p>
+        </div>
+
+        <div class="control-panel">
+            <div class="location-control">
+                <label for="locationSelect">Monitoring location</label>
+                <div class="select-wrap">
+                    <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                    <select id="locationSelect" class="form-select" aria-label="Select monitoring location">
+                        {% for location in initial_data.locations %}
+                        <option value="{{ location.id }}" {% if location.id == initial_data.location.id %}selected{% endif %}>{{ location.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="location-actions">
+                    <button id="addLocationButton" class="btn-add-location" type="button">
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Add my location
+                    </button>
+                    <button id="removeLocationButton" class="btn-remove-location" type="button">
+                        <i class="bi bi-dash-lg" aria-hidden="true"></i> Stop monitoring
+                    </button>
+                </div>
+            </div>
+
+            <div class="refresh-control">
+                <button id="refreshButton" class="btn btn-refresh" type="button">
+                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                    <span>Refresh now</span>
+                </button>
+                <div id="dataStatusPill" class="status-pill status-ok" role="status" aria-live="polite">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span id="dataStatusText">Live data</span>
+                </div>
+                <p class="last-updated-line">Last update <time id="lastUpdatedShort">{{ initial_data.last_success_at_display }}</time></p>
+            </div>
+        </div>
+    </section>
+
+    <div id="loadingBar" class="loading-bar" role="status" aria-live="polite" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Updating weather data…</span>
+    </div>
+
+    <div id="globalNotice" class="global-notice" role="alert" hidden>
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        <div>
+            <strong id="globalNoticeTitle">Update failed</strong>
+            <p id="globalNoticeMessage"></p>
+        </div>
+        <button id="globalRetryButton" class="btn btn-sm btn-outline-dark" type="button">Try again</button>
+    </div>
+
+    <div id="dataNotice" class="data-notice" role="alert" hidden>
+        <div class="data-notice-icon"><i id="dataNoticeIcon" class="bi bi-clock-history" aria-hidden="true"></i></div>
+        <div>
+            <strong id="dataNoticeTitle">Weather data is stale</strong>
+            <p id="dataNoticeMessage"></p>
+        </div>
+    </div>
+
+    <section id="alertBanner" class="alert-banner" role="alert" aria-live="assertive" hidden>
+        <div class="alert-banner-icon">
+            <i id="alertIcon" class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        </div>
+        <div class="alert-banner-body">
+            <span class="alert-kicker" id="alertKicker">Heat warning active</span>
+            <h2 id="alertTitle">Heat warning</h2>
+            <p id="alertMessage"></p>
+            <div class="alert-meta">
+                <span><i class="bi bi-geo-alt" aria-hidden="true"></i> <span id="alertLocation">{{ initial_data.location.name }}</span></span>
+                <span><i class="bi bi-clock" aria-hidden="true"></i> Generated <span id="alertTime">—</span></span>
+            </div>
+            <ul id="alertActions" class="alert-actions"></ul>
+        </div>
+        <div class="alert-banner-reading">
+            <span id="alertHeatIndex">—</span>
+            <small>Heat index</small>
+        </div>
+    </section>
+
+    <div id="safeNotice" class="safe-notice" role="status" hidden>
+        <i class="bi bi-shield-check" aria-hidden="true"></i>
+        <div>
+            <strong>No active heat warning</strong>
+            <p id="safeNoticeText">The current heat index is below the caution threshold. Continue to monitor conditions.</p>
+        </div>
+    </div>
+
+    <section id="current-conditions" class="overview-grid" aria-labelledby="currentHeading">
+        <h2 id="currentHeading" class="visually-hidden">Current heat conditions</h2>
+
+        <article id="heatHero" class="heat-hero risk-safe">
+            <div class="heat-hero-head">
+                <span class="hero-eyebrow">Current heat index</span>
+                <span class="estimate-tag"><i class="bi bi-calculator" aria-hidden="true"></i> API estimate</span>
+            </div>
+
+            <div class="hero-reading">
+                <span id="heroHeatIndex">—</span>
+                <span class="hero-unit">°C</span>
+            </div>
+
+            <div class="hero-risk-row">
+                <span id="heroRiskBadge" class="risk-badge">Unknown</span>
+                <span id="heroRiskSummary" class="hero-risk-summary">Waiting for a validated reading.</span>
+            </div>
+
+            <div class="risk-scale-wrap">
+                <div class="risk-scale" id="riskScale" aria-hidden="true"></div>
+                <div class="risk-scale-labels" id="riskScaleLabels" aria-hidden="true"></div>
+                <div class="risk-marker" id="riskMarker" hidden><span></span></div>
+            </div>
+
+            <div class="hero-meta">
+                <div>
+                    <span>Location</span>
+                    <strong id="heroLocation">{{ initial_data.location.name }}</strong>
+                </div>
+                <div>
+                    <span>Observed</span>
+                    <strong id="heroObserved">—</strong>
+                </div>
+                <div>
+                    <span>Source</span>
+                    <strong id="heroSource">Open-Meteo</strong>
+                </div>
+            </div>
+        </article>
+
+        <div class="stats-grid">
+            <article class="stat-card">
+                <div class="stat-icon stat-icon-temp"><i class="bi bi-thermometer-half" aria-hidden="true"></i></div>
+                <div class="stat-copy">
+                    <p class="stat-label">Temperature</p>
+                    <p class="stat-value"><span id="metricTemperature">—</span><span class="stat-unit">°C</span></p>
+                    <p class="stat-note">Air temperature · API data</p>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon stat-icon-humidity"><i class="bi bi-droplet-half" aria-hidden="true"></i></div>
+                <div class="stat-copy">
+                    <p class="stat-label">Relative humidity</p>
+                    <p class="stat-value"><span id="metricHumidity">—</span><span class="stat-unit">%</span></p>
+                    <p class="stat-note">Moisture in the air · API data</p>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon stat-icon-heat"><i class="bi bi-thermometer-high" aria-hidden="true"></i></div>
+                <div class="stat-copy">
+                    <p class="stat-label">Heat index</p>
+                    <p class="stat-value"><span id="metricHeatIndex">—</span><span class="stat-unit">°C</span></p>
+                    <p class="stat-note">Calculated · not a sensor reading</p>
+                </div>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-icon stat-icon-update"><i class="bi bi-cloud-check" aria-hidden="true"></i></div>
+                <div class="stat-copy">
+                    <p class="stat-label">Data updated</p>
+                    <p class="stat-value stat-value-small" id="metricUpdated">—</p>
+                    <p class="stat-note" id="metricUpdatedNote">Waiting for data</p>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <div class="content-grid">
+        <section id="history" class="panel charts-panel" aria-labelledby="historyHeading">
+            <header class="panel-head">
+                <div>
+                    <span class="panel-kicker">Historical monitoring</span>
+                    <h2 id="historyHeading">Weather and heat trends</h2>
+                    <p>Stored readings with timestamps and recorded warning levels.</p>
+                </div>
+                <div class="range-tabs" role="group" aria-label="History time range">
+                    <button type="button" class="range-tab active" data-hours="24" aria-pressed="true">24 hours</button>
+                    <button type="button" class="range-tab" data-hours="168" aria-pressed="false">7 days</button>
+                </div>
+            </header>
+
+            <div class="chart-grid">
+                <article class="chart-card">
+                    <header>
+                        <div>
+                            <h3>Temperature</h3>
+                            <p>Degrees Celsius over time</p>
+                        </div>
+                        <span class="chart-unit">°C</span>
+                    </header>
+                    <div class="chart-canvas-wrap">
+                        <canvas id="temperatureChart" role="img" aria-label="Line chart of temperature over time"></canvas>
+                        <div id="temperatureEmpty" class="chart-empty" hidden>No stored temperature readings for this period.</div>
+                    </div>
+                </article>
+
+                <article class="chart-card">
+                    <header>
+                        <div>
+                            <h3>Relative humidity</h3>
+                            <p>Percent over time</p>
+                        </div>
+                        <span class="chart-unit">%</span>
+                    </header>
+                    <div class="chart-canvas-wrap">
+                        <canvas id="humidityChart" role="img" aria-label="Line chart of relative humidity over time"></canvas>
+                        <div id="humidityEmpty" class="chart-empty" hidden>No stored humidity readings for this period.</div>
+                    </div>
+                </article>
+
+                <article class="chart-card">
+                    <header>
+                        <div>
+                            <h3>Heat index</h3>
+                            <p>Calculated heat index and risk bands</p>
+                        </div>
+                        <span class="chart-unit">°C</span>
+                    </header>
+                    <div class="chart-canvas-wrap">
+                        <canvas id="heatIndexChart" role="img" aria-label="Line chart of calculated heat index with PAGASA risk bands"></canvas>
+                        <div id="heatIndexEmpty" class="chart-empty" hidden>No stored heat-index readings for this period.</div>
+                    </div>
+                </article>
+
+                <article class="chart-card">
+                    <header>
+                        <div>
+                            <h3>Warning levels</h3>
+                            <p>Recorded risk category</p>
+                        </div>
+                        <span class="chart-unit">Risk</span>
+                    </header>
+                    <div class="chart-canvas-wrap">
+                        <canvas id="riskChart" role="img" aria-label="Stepped chart of recorded heat risk categories"></canvas>
+                        <div id="riskEmpty" class="chart-empty" hidden>No stored warning levels for this period.</div>
+                    </div>
+                </article>
+            </div>
+
+            <p class="chart-note">
+                <i class="bi bi-info-circle" aria-hidden="true"></i>
+                Historical values are stored Open-Meteo estimates, not physical sensor measurements. Forecast hours are never stored as observations.
+                A warning is recorded only when the risk category changes.
+            </p>
+        </section>
+
+        <aside class="side-stack" aria-label="Alerts, advice, and data status">
+            <section class="panel advice-panel" aria-labelledby="adviceHeading">
+                <header class="panel-head panel-head-compact">
+                    <div>
+                        <span class="panel-kicker">Protect your health</span>
+                        <h2 id="adviceHeading">Safety recommendations</h2>
+                    </div>
+                    <span id="adviceRiskBadge" class="mini-badge">Unknown</span>
+                </header>
+                <ul id="recommendationList" class="advice-list">
+                    <li>Waiting for current conditions.</li>
+                </ul>
+                <p class="panel-footnote">General information only. Follow official advisories and seek medical help when needed.</p>
+            </section>
+
+            <section id="alerts" class="panel alerts-panel" aria-labelledby="alertsHeading">
+                <header class="panel-head panel-head-compact">
+                    <div>
+                        <span class="panel-kicker">Warning history</span>
+                        <h2 id="alertsHeading">Recent heat alerts</h2>
+                    </div>
+                    <span id="alertCount" class="count-badge">0</span>
+                </header>
+                <div id="alertList" class="alert-list"></div>
+                <div id="alertEmpty" class="empty-state" hidden>
+                    <i class="bi bi-bell-slash" aria-hidden="true"></i>
+                    <p>No heat alerts have been recorded for this location yet.</p>
+                </div>
+            </section>
+
+            <section id="methodology" class="panel status-panel" aria-labelledby="statusHeading">
+                <header class="panel-head panel-head-compact">
+                    <div>
+                        <span class="panel-kicker">Reliability</span>
+                        <h2 id="statusHeading">Data status</h2>
+                    </div>
+                    <span id="statusBadge" class="mini-badge">Checking</span>
+                </header>
+                <dl class="status-list">
+                    <div>
+                        <dt>Data status</dt>
+                        <dd id="statusData">Waiting for data</dd>
+                    </div>
+                    <div>
+                        <dt>Last successful update</dt>
+                        <dd id="statusLastSuccess">—</dd>
+                    </div>
+                    <div>
+                        <dt>Observation time</dt>
+                        <dd id="statusObserved">—</dd>
+                    </div>
+                    <div>
+                        <dt>Data source</dt>
+                        <dd><span id="statusSource">Open-Meteo</span> · calculated index</dd>
+                    </div>
+                    <div>
+                        <dt>Stale-data limit</dt>
+                        <dd id="statusThreshold">30 minutes</dd>
+                    </div>
+                </dl>
+
+                <div id="apiErrorBox" class="inline-error" hidden>
+                    <i class="bi bi-wifi-off" aria-hidden="true"></i>
+                    <div>
+                        <strong>Latest weather request failed</strong>
+                        <p id="apiErrorMessage"></p>
+                        <small id="apiErrorTime"></small>
+                    </div>
+                </div>
+
+                <div class="method-note">
+                    <p>Heat index is calculated from API temperature and relative humidity using the NWS/NOAA Rothfusz equation. Risk categories use PAGASA thresholds.</p>
+                    <a href="{{ initial_data.risk_source_url }}" target="_blank" rel="noopener noreferrer">View PAGASA heat-index guidance <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
+                </div>
+            </section>
+        </aside>
+    </div>
+
+    <section class="disclaimer-bar" aria-label="Disclaimer">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <p id="disclaimerText">{{ initial_data.disclaimer }}</p>
+    </section>
+
+<!-- Add-location modal -->
+<div class="modal fade" id="locationModal" tabindex="-1" aria-labelledby="locationModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="locationModalTitle">Monitor another location</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    Search for your city or municipality. HeatGuard will monitor heat
+                    conditions for that location and raise alerts for it.
+                </p>
+                <form id="geocodeForm" class="geo-search-row" role="search">
+                    <label class="visually-hidden" for="geocodeQuery">Location name</label>
+                    <input id="geocodeQuery" class="form-control" type="search"
+                           placeholder="e.g. Quezon City, Cebu City, Baguio" autocomplete="off">
+                    <button id="geocodeButton" class="btn btn-refresh" type="submit">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <span>Search</span>
+                    </button>
+                </form>
+                <p id="geoStatus" class="geo-status" role="status" aria-live="polite"></p>
+                <div id="geoResults" class="geo-results"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+    window.HEATGARD_INITIAL = {{ initial_data | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="HeatGuard monitors heat index conditions and provides community heat-health warnings.">
+    <meta name="color-scheme" content="light">
+    <title>{% block title %}{{ app_name }} · Community Heat Watch{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b5d4b'/%3E%3Ccircle cx='32' cy='27' r='11' fill='%23f5c84c'/%3E%3Cpath d='M15 45c6-7 12-10 17-10s11 3 17 10' fill='none' stroke='%23ffffff' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Skip to dashboard content</a>
+
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a class="brand" href="{{ url_for('index') }}" aria-label="HeatGuard dashboard home">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" role="img" aria-hidden="true">
+                        <circle cx="24" cy="19" r="9" fill="currentColor"></circle>
+                        <path d="M10 37c4.6-5.5 9.1-8.2 14-8.2S33.4 31.5 38 37" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+                        <path d="M24 3v4M24 31v4M6 19h4M38 19h4M11 6l3 3M34 29l3 3M37 6l-3 3M14 29l-3 3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".55"></path>
+                    </svg>
+                </span>
+                <span class="brand-copy">
+                    <span class="brand-name">HeatGuard</span>
+                    <span class="brand-tagline">Community heat monitoring</span>
+                </span>
+            </a>
+
+            <nav class="topnav" aria-label="Dashboard navigation">
+                <a href="#current-conditions">Current</a>
+                <a href="#history">History</a>
+                <a href="#alerts">Alerts</a>
+                <a href="#methodology">Methodology</a>
+            </nav>
+
+            <div class="topbar-meta">
+                <span class="sdg-badge"><i class="bi bi-globe-americas" aria-hidden="true"></i> SDG 13 · Climate Action</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="main-content" class="page-shell" tabindex="-1">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div>
+                <strong>HeatGuard</strong>
+                <span>Heat Index Monitoring and Early Warning System for Community Health and Climate Resilience.</span>
+            </div>
+            <div class="footer-note">
+                Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>.
+                Risk categories based on <a href="https://www.pagasa.dost.gov.ph/weather/heat-index" target="_blank" rel="noopener noreferrer">PAGASA</a> guidance.
+                Heat index calculated with the NWS/NOAA Rothfusz equation.
+            </div>
+        </div>
+    </footer>
+
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

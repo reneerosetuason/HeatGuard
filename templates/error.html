@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}{{ app_name }} · Setup needed{% endblock %}
+
+{% block content %}
+<section class="panel setup-panel" aria-labelledby="setupTitle">
+    <div class="setup-icon" aria-hidden="true">
+        <i class="bi bi-tools"></i>
+    </div>
+    <span class="panel-kicker">HeatGuard could not start the dashboard</span>
+    <h1 id="setupTitle">{{ message }}</h1>
+
+    {% if details %}
+    <p class="setup-details"><code>{{ details }}</code></p>
+    {% endif %}
+
+    <div class="setup-steps">
+        <h2>Checklist</h2>
+        <ol>
+            <li>Make sure the MySQL server is running.</li>
+            <li>
+                Confirm the database settings in <code>.env</code>
+                (<code>DB_HOST</code>, <code>DB_PORT</code>, <code>DB_USER</code>,
+                <code>DB_PASSWORD</code>, <code>DB_NAME</code>).
+            </li>
+            <li>
+                Create the schema and seed locations:
+                <code>python manage.py init-db</code>
+            </li>
+            <li>
+                The dashboard expects a database named
+                <code>{{ db_name }}</code>.
+            </li>
+            <li>Reload this page after fixing the problem.</li>
+        </ol>
+    </div>
+
+    <a class="btn btn-refresh" href="{{ url_for('index') }}">
+        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+        <span>Reload dashboard</span>
+    </a>
+</section>
+{% endblock %}
