@@ -7,6 +7,7 @@
     "use strict";
 
     var initial = window.HEATGARD_INITIAL || {};
+    var csrfToken = window.HEATGARD_CSRF || "";
     var state = {
         dashboard: initial,
         locationId: initial.location ? initial.location.id : null,
@@ -15,6 +16,16 @@
         loading: false,
         autoTimer: null,
         pendingGeo: null
+    };
+
+    var addressState = {
+        regionsLoaded: false,
+        regionCode: "",
+        provinceCode: "",
+        cityCode: "",
+        barangayCode: "",
+        sequence: { provinces: 0, cities: 0, barangays: 0 },
+        busy: false
     };
 
     var RISK_COLORS = {
@@ -27,6 +38,17 @@
 
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    function writeHeaders() {
+        var headers = {
+            "Content-Type": "application/json",
+            Accept: "application/json"
+        };
+        if (csrfToken) {
+            headers["X-CSRF-Token"] = csrfToken;
+        }
+        return headers;
     }
 
     function setText(id, value) {
@@ -732,7 +754,7 @@
         hideGlobalError();
         return fetch("/api/refresh", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            headers: writeHeaders(),
             body: JSON.stringify({ location_id: state.locationId, hours: state.hours })
         })
             .then(function (response) { return response.json().then(function (body) { return { status: response.status, body: body }; }); })
@@ -810,8 +832,12 @@
                 if (query) { query.value = ""; }
                 setText("geoStatus", "");
                 byId("geoResults").innerHTML = "";
+                if (!addressState.regionsLoaded) {
+                    loadAddressRegions();
+                }
                 modal.show();
-                if (query) { query.focus(); }
+                var regionSelect = byId("regionSelect");
+                if (regionSelect) { regionSelect.focus(); }
             });
         }
 
@@ -822,6 +848,360 @@
                 searchLocations();
             });
         }
+
+        initAddressPicker();
+    }
+
+    /* ---------------- Philippine address picker ---------------- */
+    function initAddressPicker() {
+        var regionSelect = byId("regionSelect");
+        var provinceSelect = byId("provinceSelect");
+        var citySelect = byId("citySelect");
+        var barangaySelect = byId("barangaySelect");
+        var addressForm = byId("addressForm");
+
+        if (regionSelect) {
+            regionSelect.addEventListener("change", function () {
+                addressState.regionCode = regionSelect.value;
+                addressState.provinceCode = "";
+                addressState.cityCode = "";
+                addressState.barangayCode = "";
+                addressState.sequence.provinces += 1;
+                addressState.sequence.cities += 1;
+                addressState.sequence.barangays += 1;
+                resetAddressSelect(provinceSelect, "Select a region first");
+                resetAddressSelect(citySelect, "Select a province first");
+                resetAddressSelect(barangaySelect, "Select a city first");
+                clearAddressSummary();
+                if (regionSelect.value) {
+                    loadAddressProvinces(regionSelect.value);
+                }
+            });
+        }
+
+        if (provinceSelect) {
+            provinceSelect.addEventListener("change", function () {
+                addressState.provinceCode = provinceSelect.value;
+                addressState.cityCode = "";
+                addressState.barangayCode = "";
+                addressState.sequence.cities += 1;
+                addressState.sequence.barangays += 1;
+                resetAddressSelect(citySelect, "Select a province first");
+                resetAddressSelect(barangaySelect, "Select a city first");
+                clearAddressSummary();
+                if (provinceSelect.value) {
+                    loadAddressCities(provinceSelect.value);
+                }
+            });
+        }
+
+        if (citySelect) {
+            citySelect.addEventListener("change", function () {
+                addressState.cityCode = citySelect.value;
+                addressState.barangayCode = "";
+                addressState.sequence.barangays += 1;
+                resetAddressSelect(barangaySelect, "Select a city first");
+                clearAddressSummary();
+                if (citySelect.value) {
+                    loadAddressBarangays(citySelect.value);
+                }
+            });
+        }
+
+        if (barangaySelect) {
+            barangaySelect.addEventListener("change", function () {
+                addressState.barangayCode = barangaySelect.value;
+                updateAddressSummary();
+            });
+        }
+
+        if (addressForm) {
+            addressForm.addEventListener("submit", function (event) {
+                event.preventDefault();
+                submitAddress();
+            });
+        }
+    }
+
+    function setAddressStatus(message) {
+        setText("addressStatus", message || "");
+    }
+
+    function resetAddressSelect(select, placeholder) {
+        if (!select) {
+            return;
+        }
+        select.innerHTML = "";
+        var option = document.createElement("option");
+        option.value = "";
+        option.textContent = placeholder;
+        select.appendChild(option);
+        select.disabled = true;
+    }
+
+    function fillAddressSelect(select, items, placeholder) {
+        if (!select) {
+            return;
+        }
+        select.innerHTML = "";
+        var first = document.createElement("option");
+        first.value = "";
+        first.textContent = placeholder;
+        select.appendChild(first);
+        items.forEach(function (item) {
+            var option = document.createElement("option");
+            option.value = item.code;
+            option.textContent = item.name;
+            select.appendChild(option);
+        });
+        select.disabled = items.length === 0;
+    }
+
+    function addressFetch(url) {
+        return fetch(url, { headers: { Accept: "application/json" } })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            })
+            .then(function (result) {
+                if (!result.ok || !result.data.ok) {
+                    throw new Error(result.data.error || "Address lookup failed.");
+                }
+                return result.data;
+            });
+    }
+
+    function loadAddressRegions() {
+        var select = byId("regionSelect");
+        if (!select) {
+            return;
+        }
+        setAddressStatus("Loading Philippine regions...");
+        addressFetch("/api/address/regions")
+            .then(function (payload) {
+                fillAddressSelect(select, payload.regions || [], "Select a region");
+                addressState.regionsLoaded = true;
+                setAddressStatus("");
+            })
+            .catch(function (error) {
+                setAddressStatus(error.message || "Could not load regions.");
+            });
+    }
+
+    function loadAddressProvinces(regionCode) {
+        var select = byId("provinceSelect");
+        var sequence = ++addressState.sequence.provinces;
+        resetAddressSelect(select, "Loading provinces...");
+        setAddressStatus("Loading provinces...");
+        addressFetch("/api/address/provinces?region_code=" + encodeURIComponent(regionCode))
+            .then(function (payload) {
+                if (sequence !== addressState.sequence.provinces) {
+                    return;
+                }
+                var items = payload.provinces || [];
+                fillAddressSelect(select, items, "Select a province or city");
+                setAddressStatus("");
+                if (items.length === 1) {
+                    select.value = items[0].code;
+                    addressState.provinceCode = items[0].code;
+                    loadAddressCities(items[0].code);
+                }
+            })
+            .catch(function (error) {
+                if (sequence === addressState.sequence.provinces) {
+                    resetAddressSelect(select, "Could not load provinces");
+                    setAddressStatus(error.message || "Could not load provinces.");
+                }
+            });
+    }
+
+    function loadAddressCities(provinceCode) {
+        var select = byId("citySelect");
+        var sequence = ++addressState.sequence.cities;
+        resetAddressSelect(select, "Loading cities and municipalities...");
+        setAddressStatus("Loading cities and municipalities...");
+        addressFetch("/api/address/cities?province_code=" + encodeURIComponent(provinceCode))
+            .then(function (payload) {
+                if (sequence !== addressState.sequence.cities) {
+                    return;
+                }
+                var items = payload.cities || [];
+                fillAddressSelect(select, items, "Select a city or municipality");
+                setAddressStatus("");
+                if (items.length === 1) {
+                    select.value = items[0].code;
+                    addressState.cityCode = items[0].code;
+                    loadAddressBarangays(items[0].code);
+                }
+            })
+            .catch(function (error) {
+                if (sequence === addressState.sequence.cities) {
+                    resetAddressSelect(select, "Could not load cities");
+                    setAddressStatus(error.message || "Could not load cities.");
+                }
+            });
+    }
+
+    function loadAddressBarangays(cityCode) {
+        var select = byId("barangaySelect");
+        var sequence = ++addressState.sequence.barangays;
+        resetAddressSelect(select, "Loading barangays...");
+        setAddressStatus("Loading barangays...");
+        addressFetch("/api/address/barangays?city_code=" + encodeURIComponent(cityCode))
+            .then(function (payload) {
+                if (sequence !== addressState.sequence.barangays) {
+                    return;
+                }
+                var items = payload.barangays || [];
+                fillAddressSelect(select, items, "Select a barangay");
+                setAddressStatus("");
+                if (items.length === 1) {
+                    select.value = items[0].code;
+                    addressState.barangayCode = items[0].code;
+                }
+                updateAddressSummary();
+            })
+            .catch(function (error) {
+                if (sequence === addressState.sequence.barangays) {
+                    resetAddressSelect(select, "Could not load barangays");
+                    setAddressStatus(error.message || "Could not load barangays.");
+                }
+            });
+    }
+
+    function selectedAddressText(id) {
+        var select = byId(id);
+        if (!select || !select.value) {
+            return "";
+        }
+        var option = select.options[select.selectedIndex];
+        return option ? option.textContent : "";
+    }
+
+    function updateAddressSummary() {
+        var summary = byId("addressSummary");
+        var submit = byId("addressSubmit");
+        var parts = [
+            selectedAddressText("barangaySelect"),
+            selectedAddressText("citySelect"),
+            selectedAddressText("provinceSelect"),
+            selectedAddressText("regionSelect")
+        ];
+        var unique = [];
+        parts.forEach(function (part) {
+            if (!part) {
+                return;
+            }
+            if (!unique.length || unique[unique.length - 1].toLowerCase() !== part.toLowerCase()) {
+                unique.push(part);
+            }
+        });
+        var complete = Boolean(
+            byId("regionSelect") && byId("regionSelect").value &&
+            byId("provinceSelect") && byId("provinceSelect").value &&
+            byId("citySelect") && byId("citySelect").value &&
+            byId("barangaySelect") && byId("barangaySelect").value
+        );
+        if (submit) {
+            submit.disabled = !complete || addressState.busy;
+        }
+        if (summary) {
+            toggle(summary, complete);
+            if (complete) {
+                setText("addressSummaryName", parts[0] + ", " + parts[1]);
+                setText("addressSummaryDetail", unique.slice(2).join(", "));
+            }
+        }
+        return complete;
+    }
+
+    function clearAddressSummary() {
+        var summary = byId("addressSummary");
+        toggle(summary, false);
+        var submit = byId("addressSubmit");
+        if (submit) {
+            submit.disabled = true;
+        }
+        setAddressStatus("");
+    }
+
+    function resetAddressPicker() {
+        addressState.regionCode = "";
+        addressState.provinceCode = "";
+        addressState.cityCode = "";
+        addressState.barangayCode = "";
+        addressState.sequence.provinces += 1;
+        addressState.sequence.cities += 1;
+        addressState.sequence.barangays += 1;
+        var region = byId("regionSelect");
+        if (region) {
+            region.value = "";
+            region.focus();
+        }
+        resetAddressSelect(byId("provinceSelect"), "Select a region first");
+        resetAddressSelect(byId("citySelect"), "Select a province first");
+        resetAddressSelect(byId("barangaySelect"), "Select a city first");
+        clearAddressSummary();
+    }
+
+    function submitAddress() {
+        if (!updateAddressSummary() || addressState.busy) {
+            return;
+        }
+        var submit = byId("addressSubmit");
+        addressState.busy = true;
+        if (submit) {
+            submit.disabled = true;
+            submit.setAttribute("aria-busy", "true");
+        }
+        setAddressStatus("Adding this address...");
+
+        fetch("/api/locations/address", {
+            method: "POST",
+            headers: writeHeaders(),
+            body: JSON.stringify({
+                region_code: addressState.regionCode,
+                province_code: addressState.provinceCode,
+                city_code: addressState.cityCode,
+                barangay_code: addressState.barangayCode
+            })
+        })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            })
+            .then(function (result) {
+                var payload = result.data || {};
+                if (!result.ok || !payload.ok) {
+                    throw new Error(payload.error || "Could not add this address.");
+                }
+                var modalElement = byId("locationModal");
+                if (modalElement && window.bootstrap) {
+                    var instance = window.bootstrap.Modal.getInstance(modalElement);
+                    if (instance) { instance.hide(); }
+                }
+                state.locationId = payload.location.id;
+                if (payload.dashboard) {
+                    render(payload.dashboard);
+                } else {
+                    loadDashboard();
+                }
+                toast("Now monitoring " + payload.location.name + ".", "success");
+                resetAddressPicker();
+            })
+            .catch(function (error) {
+                setAddressStatus(error.message || "Could not add this address.");
+                toast("Could not add this address.", "error");
+            })
+            .finally(function () {
+                addressState.busy = false;
+                if (submit) {
+                    submit.removeAttribute("aria-busy");
+                    submit.disabled = !updateAddressSummary();
+                }
+            });
     }
 
     function searchLocations() {
@@ -894,7 +1274,7 @@
 
         fetch("/api/locations", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            headers: writeHeaders(),
             body: JSON.stringify(body)
         })
             .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
@@ -931,7 +1311,10 @@
         if (!window.confirm("Stop monitoring heat conditions for " + current.name + "?")) {
             return;
         }
-        fetch("/api/locations/" + current.id, { method: "DELETE", headers: { Accept: "application/json" } })
+        fetch("/api/locations/" + current.id, {
+            method: "DELETE",
+            headers: { Accept: "application/json", "X-CSRF-Token": csrfToken }
+        })
             .then(function (response) { return response.json().then(function (data) { return { ok: response.ok, data: data }; }); })
             .then(function (result) {
                 if (!result.ok || !result.data.ok) {

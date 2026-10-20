@@ -9,7 +9,12 @@ from services import db
 @pytest.fixture()
 def client():
     app = create_app()
-    app.config.update(TESTING=True)
+    app.config.update(
+        TESTING=True,
+        CSRF_ENABLED=False,
+        ADMIN_PASSWORD="",
+        ALLOW_LOCAL_WRITES=True,
+    )
     with app.test_client() as test_client:
         yield test_client
 
@@ -93,5 +98,11 @@ def test_create_location_rejects_bad_coordinates(client):
     response = client.post(
         "/api/locations", json={"name": "Nowhere", "latitude": 999, "longitude": 2}
     )
+    assert response.status_code == 400
+    assert response.get_json()["ok"] is False
+
+
+def test_create_location_rejects_non_object_json(client):
+    response = client.post("/api/locations", json=["not", "an", "object"])
     assert response.status_code == 400
     assert response.get_json()["ok"] is False

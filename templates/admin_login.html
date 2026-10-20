@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Admin sign in | {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="login-shell" aria-labelledby="loginTitle">
+    <div class="login-card">
+        <span class="eyebrow"><i class="bi bi-shield-lock" aria-hidden="true"></i> Protected controls</span>
+        <h1 id="loginTitle">Admin sign in</h1>
+
+        {% if not_configured %}
+        <p class="login-copy">
+            No admin password is configured, so monitoring changes are limited
+            to the HeatGuard host. Set <code>ADMIN_PASSWORD</code> in
+            <code>.env</code> to enable remote administration.
+        </p>
+        <a class="btn btn-refresh" href="{{ url_for('index') }}">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to dashboard
+        </a>
+        {% else %}
+        <p class="login-copy">
+            Sign in to add or remove monitoring locations and refresh weather data.
+        </p>
+
+        {% if error %}
+        <div class="login-error" role="alert">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{{ error }}</span>
+        </div>
+        {% endif %}
+
+        <form class="login-form" method="post" action="{{ url_for('admin_login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next" value="{{ next_url }}">
+
+            <div>
+                <label for="adminUsername">Username</label>
+                <input id="adminUsername" class="form-control" name="username"
+                       type="text" autocomplete="username" required autofocus>
+            </div>
+            <div>
+                <label for="adminPassword">Password</label>
+                <input id="adminPassword" class="form-control" name="password"
+                       type="password" autocomplete="current-password" required>
+            </div>
+
+            <button class="btn btn-refresh" type="submit">
+                <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Sign in
+            </button>
+        </form>
+
+        <p class="login-footnote">
+            Sessions expire after {{ session_lifetime_hours }} hours.
+            Repeated failed attempts are rate limited.
+        </p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

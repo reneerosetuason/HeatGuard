@@ -153,24 +153,40 @@ class MonitoringScheduler:
         self.interval_seconds = max(60, int(interval_seconds))
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._push_thread: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        return bool(
+            (self._thread is not None and self._thread.is_alive())
+            or (self._push_thread is not None and self._push_thread.is_alive())
+        )
 
     def start(self) -> None:
         if self.running:
             return
-        self._thread = threading.Thread(
-            target=self._run,
-            name="heatguard-monitor",
-            daemon=True,
-        )
-        self._thread.start()
-        logger.info(
-            "Background monitoring started (interval %ss)",
-            self.interval_seconds,
-        )
+        if config.MONITOR_ENABLED:
+            self._thread = threading.Thread(
+                target=self._run,
+                name="heatguard-monitor",
+                daemon=True,
+            )
+            self._thread.start()
+            logger.info(
+                "Background monitoring started (interval %ss)",
+                self.interval_seconds,
+            )
+
+        from services import push_notifications
+
+        if push_notifications.push_configured():
+            self._push_thread = threading.Thread(
+                target=self._run_push_notifications,
+                name="heatguard-mobile-push",
+                daemon=True,
+            )
+            self._push_thread.start()
+            logger.info("Daily mobile push scheduler started")
 
     def _run(self) -> None:
         # Allow the web server to finish starting before the first API call.
@@ -184,10 +200,23 @@ class MonitoringScheduler:
             if self._stop_event.wait(self.interval_seconds):
                 break
 
+    def _run_push_notifications(self) -> None:
+        from services.push_notifications import run_due_notifications
+
+        while not self._stop_event.is_set():
+            try:
+                run_due_notifications()
+            except Exception:
+                logger.exception("Daily mobile push check failed")
+            if self._stop_event.wait(60):
+                break
+
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
+        if self._push_thread is not None:
+            self._push_thread.join(timeout=5)
         logger.info("Background monitoring stopped")
 
 
@@ -203,8 +232,10 @@ def start_scheduler() -> MonitoringScheduler | None:
     """Start the process-wide scheduler once."""
 
     global _scheduler
-    if not config.MONITOR_ENABLED:
-        logger.info("Background monitoring disabled by configuration")
+    from services import push_notifications
+
+    if not config.MONITOR_ENABLED and not push_notifications.push_configured():
+        logger.info("Background monitoring and mobile push are disabled")
         return None
     with _scheduler_lock:
         if _scheduler is None:

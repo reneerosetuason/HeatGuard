@@ -4,11 +4,14 @@ Examples:
     python manage.py init-db
     python manage.py monitor-once
     python manage.py backfill --days 7
+    python manage.py validate-pagasa
+    python manage.py validate-pagasa --json
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 
@@ -141,6 +144,48 @@ def backfill(days: int, location_id: int | None = None) -> int:
     return 0
 
 
+def validate_pagasa(as_json: bool = False, timeout: int = 20) -> int:
+    from services.pagasa_validation import (
+        PAGASAValidationError,
+        fetch_and_validate,
+    )
+
+    try:
+        report = fetch_and_validate(timeout=timeout)
+    except PAGASAValidationError as exc:
+        print(f"Validation failed: {exc}", file=sys.stderr)
+        return 1
+
+    if as_json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    metrics = report["metrics"]
+    agreement = report["category_agreement"]
+    print("PAGASA heat-index validation")
+    print(f"  Stations parsed:       {report['station_count']}")
+    print(f"  Stations compared:     {report['compared_station_count']}")
+    print(f"  Skipped:               {report['skipped_station_count']}")
+    print(f"  Mean absolute error:   {metrics['mae_c']} C")
+    print(f"  RMSE:                  {metrics['rmse_c']} C")
+    print(f"  Mean bias:             {metrics['bias_c']} C")
+    print(f"  Within 1 C:            {metrics['within_1c_pct']}%")
+    print(f"  Within 2 C:            {metrics['within_2c_pct']}%")
+    print(
+        "  Category agreement:    "
+        f"{agreement['agreement_pct']}% "
+        f"({agreement['matches']}/{agreement['total']})"
+    )
+    print("\n  Largest deviations:")
+    for item in report["largest_deviations"]:
+        print(
+            f"  - {item['station']}: PAGASA {item['reported_heat_index_c']} C, "
+            f"HeatGuard {item['calculated_heat_index_c']} C, "
+            f"difference {item['difference_c']:+.2f} C"
+        )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="HeatGuard maintenance")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -161,6 +206,17 @@ def main() -> int:
         "--location", type=int, default=None, help="Optional location id"
     )
 
+    validation_parser = subparsers.add_parser(
+        "validate-pagasa",
+        help="Compare HeatGuard's heat index with PAGASA station data",
+    )
+    validation_parser.add_argument(
+        "--json", action="store_true", help="Print the full report as JSON"
+    )
+    validation_parser.add_argument(
+        "--timeout", type=int, default=20, help="Request timeout in seconds"
+    )
+
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -169,6 +225,8 @@ def main() -> int:
         return monitor_once()
     if args.command == "backfill":
         return backfill(args.days, args.location)
+    if args.command == "validate-pagasa":
+        return validate_pagasa(args.json, args.timeout)
     return 1
 
 

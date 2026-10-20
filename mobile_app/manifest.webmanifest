@@ -1,0 +1,19 @@
+{
+  "id": "/mobile/",
+  "name": "HeatGuard Daily Weather",
+  "short_name": "HeatGuard",
+  "description": "Daily local weather, heat risk and safety reminders.",
+  "start_url": "/mobile/",
+  "scope": "/mobile/",
+  "display": "standalone",
+  "background_color": "#f4f7f1",
+  "theme_color": "#0c2521",
+  "icons": [
+    {
+      "src": "/mobile/icons/heatguard.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

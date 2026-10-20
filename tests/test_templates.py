@@ -35,7 +35,9 @@ class TemplateTests(unittest.TestCase):
                 self.app.jinja_env.get_template(name)
 
     def test_dashboard_renders_key_regions(self):
-        with self.app.test_request_context("/"):
+        with self.app.test_request_context(
+            "/", environ_base={"REMOTE_ADDR": "127.0.0.1"}
+        ):
             html = render_template(
                 "dashboard.html",
                 initial_data=MINIMAL_DASHBOARD,
@@ -45,6 +47,10 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("Community Heat Watch", html)
         self.assertIn("Add my location", html)
         self.assertIn("locationModal", html)
+        self.assertIn("addressForm", html)
+        self.assertIn("regionSelect", html)
+        self.assertIn("barangaySelect", html)
+        self.assertIn("Search by name", html)
         self.assertIn("static/js/dashboard.js", html)
 
     def test_error_page_renders(self):

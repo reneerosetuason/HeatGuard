@@ -40,6 +40,42 @@ APP_SUBTITLE = (
 )
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-this-secret")
 
+# ---- Authentication and write protection ----
+# When ADMIN_PASSWORD is set, changing HeatGuard data requires an admin login.
+# Without a password, only requests from the local machine may change data.
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ALLOW_LOCAL_WRITES = _env_bool("ALLOW_LOCAL_WRITES", True)
+SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", False)
+SESSION_LIFETIME_HOURS = _env_int("SESSION_LIFETIME_HOURS", 8)
+# Enable only when HeatGuard is behind a reverse proxy that overwrites
+# X-Forwarded-For and X-Forwarded-Proto.
+TRUST_PROXY = _env_bool("TRUST_PROXY", False)
+CSRF_ENABLED = _env_bool("CSRF_ENABLED", True)
+LOGIN_MAX_ATTEMPTS = _env_int("LOGIN_MAX_ATTEMPTS", 5)
+LOGIN_WINDOW_SECONDS = _env_int("LOGIN_WINDOW_SECONDS", 900)
+WRITE_MAX_REQUESTS = _env_int("WRITE_MAX_REQUESTS", 60)
+WRITE_WINDOW_SECONDS = _env_int("WRITE_WINDOW_SECONDS", 60)
+WEB_CORS_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.getenv("WEB_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
+WEB_CORS_PATH_METHODS = {
+    "/api/address/regions": ("GET",),
+    "/api/address/provinces": ("GET",),
+    "/api/address/cities": ("GET",),
+    "/api/address/barangays": ("GET",),
+    "/api/dashboard": ("GET",),
+    "/api/geocode": ("GET",),
+    "/api/locations": ("GET", "POST"),
+    "/api/locations/address": ("POST",),
+    "/api/mobile/config": ("GET",),
+    "/api/mobile/login": ("POST",),
+    "/api/mobile/logout": ("POST",),
+    "/api/refresh": ("POST",),
+}
+
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
     "port": _env_int("DB_PORT", 3306),
@@ -48,6 +84,14 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME", "HeatGuard"),
     "charset": "utf8mb4",
 }
+
+# ---- Optional installable mobile app push notifications ----
+# The private key can be provided directly or as a PEM file path. Keep it out
+# of source control; VAPID_PUBLIC_KEY is safe to serve to app clients.
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+VAPID_PRIVATE_KEY_PATH = os.getenv("VAPID_PRIVATE_KEY_PATH", "").strip()
+VAPID_CLAIMS_EMAIL = os.getenv("VAPID_CLAIMS_EMAIL", "").strip()
 
 # Open-Meteo is free for non-commercial use and does not require an API key.
 OPEN_METEO_CURRENT_URL = "https://api.open-meteo.com/v1/forecast"

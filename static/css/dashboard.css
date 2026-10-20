@@ -179,6 +179,13 @@ code {
     color: #fff;
 }
 
+.topbar-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
 .topbar-meta .sdg-badge {
     display: inline-flex;
     align-items: center;
@@ -189,6 +196,31 @@ code {
     border-radius: 999px;
     font-size: 0.78rem;
     font-weight: 600;
+}
+
+.auth-nav {
+    margin: 0;
+}
+
+.auth-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 999px;
+    background: transparent;
+    color: #fff;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.auth-link:hover,
+.auth-link:focus {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
 }
 
 /* ---------------- Layout ---------------- */
@@ -1104,6 +1136,111 @@ code {
 }
 
 /* ---------------- Location modal ---------------- */
+.location-tabs {
+    border-bottom: 1px solid var(--line);
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+}
+
+.location-tabs .nav-link {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 600;
+    padding: 0.55rem 0.7rem;
+}
+
+.location-tabs .nav-link:hover,
+.location-tabs .nav-link:focus {
+    color: var(--brand);
+}
+
+.location-tabs .nav-link.active {
+    background: transparent;
+    border-bottom-color: var(--brand);
+    color: var(--brand);
+}
+
+.location-tab-content {
+    padding-top: 0.2rem;
+}
+
+.address-form {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.address-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.address-field {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.address-field label {
+    color: var(--ink);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.address-field .form-select {
+    border-color: var(--line);
+    font-size: 0.88rem;
+    min-height: 42px;
+}
+
+.address-field .form-select:disabled {
+    background-color: var(--surface-alt, #f3f6f4);
+    color: var(--muted);
+    opacity: 1;
+}
+
+.address-summary {
+    background: var(--brand-soft);
+    border: 1px solid rgba(31, 122, 92, 0.22);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.7rem 0.85rem;
+}
+
+.address-summary-label {
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.address-summary strong {
+    color: var(--brand-dark);
+    font-size: 0.92rem;
+}
+
+.address-summary span:last-child {
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.address-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+}
+
+.address-source {
+    color: var(--muted);
+    font-size: 0.73rem;
+    margin-left: auto;
+}
+
 .geo-search-row {
     display: flex;
     gap: 0.5rem;
@@ -1227,6 +1364,84 @@ code {
     to { opacity: 1; transform: translateY(0); }
 }
 
+.read-only-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.read-only-note a {
+    color: var(--brand);
+    font-weight: 700;
+}
+
+/* ---------------- Admin login ---------------- */
+.login-shell {
+    min-height: 60vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem 0;
+}
+
+.login-card {
+    width: min(100%, 460px);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: 1.75rem;
+}
+
+.login-card h1 {
+    font-size: 1.65rem;
+    margin-bottom: 0.5rem;
+}
+
+.login-copy {
+    color: var(--muted);
+    margin-bottom: 1.1rem;
+}
+
+.login-form {
+    display: grid;
+    gap: 1rem;
+}
+
+.login-form label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.3rem;
+}
+
+.login-form .btn-refresh {
+    justify-content: center;
+}
+
+.login-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    background: #fdeceb;
+    border: 1px solid #f3b8b4;
+    color: #8f1d13;
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.login-footnote {
+    margin: 1rem 0 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
 /* ---------------- Responsive ---------------- */
 @media (max-width: 1080px) {
     .overview-grid,
@@ -1288,5 +1503,23 @@ code {
 
     .location-control {
         flex: 1 1 100%;
+    }
+
+    .address-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .location-tabs .nav-link {
+        font-size: 0.8rem;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+    }
+
+    .address-actions .btn-refresh {
+        width: 100%;
+    }
+
+    .address-source {
+        margin-left: 0;
     }
 }

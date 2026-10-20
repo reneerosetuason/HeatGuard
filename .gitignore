@@ -1,6 +1,10 @@
 # Environment / secrets
 .env
 
+# Web Push VAPID keys (generated locally for mobile app notifications)
+private_key.pem
+public_key.pem
+
 # Python
 __pycache__/
 *.py[cod]
@@ -17,6 +21,8 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
+playwright-report/
 
 # Editors / OS
 .vscode/

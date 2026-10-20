@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 
 import pymysql
@@ -171,6 +171,100 @@ def deactivate_location(location_id: int) -> bool:
             )
             changed = cur.rowcount
     return bool(changed)
+
+
+def save_mobile_push_subscription(
+    *,
+    endpoint_hash: str,
+    endpoint: str,
+    p256dh: str,
+    auth: str,
+    location_id: int,
+    notify_time: str,
+    timezone_name: str,
+) -> None:
+    """Create or update one browser/device's daily notification settings."""
+
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mobile_push_subscriptions "
+                "(endpoint_hash, endpoint, p256dh, auth, location_id, "
+                "notify_time, timezone, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(), "
+                "UTC_TIMESTAMP()) "
+                "ON DUPLICATE KEY UPDATE "
+                "last_sent_date = CASE WHEN location_id <> VALUES(location_id) "
+                "OR notify_time <> VALUES(notify_time) "
+                "OR timezone <> VALUES(timezone) THEN NULL ELSE last_sent_date END, "
+                "last_attempt_at = CASE WHEN location_id <> VALUES(location_id) "
+                "OR notify_time <> VALUES(notify_time) "
+                "OR timezone <> VALUES(timezone) THEN NULL ELSE last_attempt_at END, "
+                "endpoint = VALUES(endpoint), p256dh = VALUES(p256dh), "
+                "auth = VALUES(auth), location_id = VALUES(location_id), "
+                "notify_time = VALUES(notify_time), timezone = VALUES(timezone), "
+                "updated_at = UTC_TIMESTAMP()",
+                (
+                    endpoint_hash,
+                    endpoint,
+                    p256dh,
+                    auth,
+                    location_id,
+                    notify_time,
+                    timezone_name,
+                ),
+            )
+
+
+def get_mobile_push_subscriptions() -> list[dict]:
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, endpoint_hash, endpoint, p256dh, auth, location_id, "
+                "TIME_FORMAT(notify_time, '%H:%i:%s') AS notify_time, "
+                "timezone, last_sent_date, last_attempt_at "
+                "FROM mobile_push_subscriptions ORDER BY id"
+            )
+            rows = cur.fetchall()
+    return [dict(row) for row in rows]
+
+
+def claim_mobile_push_attempt(
+    subscription_id: int, local_date, attempted_at: datetime
+) -> bool:
+    """Claim a due delivery and throttle retries after a failed push."""
+
+    retry_before = attempted_at.replace(microsecond=0) - timedelta(minutes=15)
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mobile_push_subscriptions SET last_attempt_at = %s "
+                "WHERE id = %s AND (last_sent_date IS NULL OR last_sent_date < %s) "
+                "AND (last_attempt_at IS NULL OR last_attempt_at <= %s)",
+                (attempted_at.replace(microsecond=0), subscription_id,
+                 local_date, retry_before),
+            )
+            return cur.rowcount == 1
+
+
+def mark_mobile_push_sent(subscription_id: int, local_date) -> None:
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mobile_push_subscriptions SET last_sent_date = %s, "
+                "updated_at = UTC_TIMESTAMP() WHERE id = %s",
+                (local_date, subscription_id),
+            )
+
+
+def delete_mobile_push_subscription(endpoint_hash: str) -> bool:
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM mobile_push_subscriptions WHERE endpoint_hash = %s",
+                (endpoint_hash,),
+            )
+            return cur.rowcount > 0
 
 
 def get_latest_reading(location_id: int) -> dict | None:
