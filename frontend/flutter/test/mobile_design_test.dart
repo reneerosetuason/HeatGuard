@@ -18,6 +18,7 @@ class _TestApi extends HeatGuardApi {
   bool stale = false;
   bool unavailable = false;
   bool missing = false;
+  String weatherScene = 'sun';
   int lastHours = 24;
   int lastLocation = 1;
 
@@ -74,6 +75,7 @@ class _TestApi extends HeatGuardApi {
           'observed_at_display': 'Oct 21, 3:00 PM',
           'source': 'Open-Meteo',
           'is_stale': stale,
+          'weather_scene': weatherScene,
         },
       'recommendations': [
         'Drink water regularly and take breaks in a cool, shaded place.',
@@ -306,6 +308,24 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('weather artwork follows fresh conditions when the app resumes', (
+    tester,
+  ) async {
+    final api = _TestApi();
+    await mount(tester, api);
+    for (final scene in ['sun', 'moon', 'rain', 'sun']) {
+      api.weatherScene = scene;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.byKey(ValueKey('weather-scene-$scene')), findsOneWidget);
+      expect(find.text('Feels like outside'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'weather-$scene');
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('switching monitored location loads its own dashboard', (
     tester,

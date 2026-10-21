@@ -72,7 +72,7 @@ def fetch_current_weather(location: dict) -> WeatherObservation:
     params = {
         "latitude": location["latitude"],
         "longitude": location["longitude"],
-        "current": "temperature_2m,relative_humidity_2m",
+        "current": "temperature_2m,relative_humidity_2m,weather_code,precipitation,is_day",
         "temperature_unit": "celsius",
         "timezone": location.get("timezone") or "auto",
         "forecast_days": 1,

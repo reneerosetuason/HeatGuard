@@ -63,6 +63,11 @@ class HeatDashboard {
   double? get humidityPct => _asDouble(current?['humidity_pct']);
   double? get heatIndexC => _asDouble(current?['heat_index_c']);
   String? get observedAtDisplay => current?['observed_at_display']?.toString();
+  String get weatherScene => switch (current?['weather_scene']) {
+    'moon' => 'moon',
+    'rain' => 'rain',
+    _ => 'sun',
+  };
   String get riskLabel =>
       (current?['risk'] as Map<String, dynamic>?)?['label']?.toString() ??
       'Unknown';

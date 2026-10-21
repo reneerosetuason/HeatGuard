@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -57,6 +58,30 @@ def _as_float(value) -> float | None:
         return round(float(value), 1)
     except (TypeError, ValueError):
         return None
+
+
+def _weather_scene(latest: dict, timezone_name: str, now: datetime, *, stale: bool) -> str:
+    """Choose only the dashboard artwork; never infer rain from heat or humidity."""
+    is_day = 6 <= _local_time(now, timezone_name).hour < 18
+    if not stale:
+        payload = latest.get("raw_payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (ValueError, TypeError):
+                payload = None
+        current = payload.get("current") if isinstance(payload, dict) else None
+        if isinstance(current, dict):
+            if current.get("is_day") in (0, 1):
+                is_day = bool(current["is_day"])
+            code = current.get("weather_code")
+            precipitation = current.get("precipitation")
+            rain_codes = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
+            if isinstance(code, (int, float)) and code in rain_codes:
+                return "rain"
+            if isinstance(precipitation, (int, float)) and not isinstance(precipitation, bool) and 0 < precipitation <= 1000:
+                return "rain"
+    return "sun" if is_day else "moon"
 
 
 def _risk_payload(category: dict | None, *, last_known: bool = False) -> dict | None:
@@ -255,6 +280,7 @@ def build_dashboard(
             "risk": _risk_payload(stored_risk, last_known=is_stale),
             "source": latest.get("source") or "open-meteo",
             "is_stale": is_stale,
+            "weather_scene": _weather_scene(latest, timezone_name, now, stale=is_stale),
         }
         if not is_stale:
             effective_risk = stored_risk

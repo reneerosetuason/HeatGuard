@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 
@@ -76,6 +77,38 @@ def test_no_data_is_not_classified_as_safe(monkeypatch):
     assert dashboard["active_alert"] is None
     assert dashboard["recommendations"] == config.UNKNOWN_RECOMMENDATIONS
     assert "not treated as a safe" in dashboard["status_message"]
+
+
+@pytest.mark.parametrize("conditions,expected", [
+    ({"is_day": 1, "weather_code": 0, "precipitation": 0}, "sun"),
+    ({"is_day": 0, "weather_code": 0, "precipitation": 0}, "moon"),
+    ({"is_day": 1, "weather_code": 61, "precipitation": 0}, "rain"),
+    ({"is_day": 0, "weather_code": 80, "precipitation": 0}, "rain"),
+    ({"is_day": 0, "precipitation": 0.2}, "rain"),
+    ({"is_day": 0, "weather_code": None, "precipitation": None}, "moon"),
+])
+def test_weather_artwork_uses_reported_conditions(monkeypatch, conditions, expected):
+    reading = make_reading(hours_ago=0.05)
+    reading["raw_payload"] = json.dumps({"current": conditions})
+    patch_db(monkeypatch, reading=reading)
+    result = dashboard_service.build_dashboard(location_id=1)
+    assert result["current"]["weather_scene"] == expected
+    assert result["current"]["heat_index_c"] == 43.0
+
+
+@pytest.mark.parametrize("payload", [None, "invalid json", "null", "[]", {"current": None},
+    {"current": {"weather_code": [], "precipitation": True}}])
+def test_missing_condition_fields_fall_back_to_the_locations_time(payload):
+    now = datetime(2026, 10, 21, 19, tzinfo=timezone.utc)
+    reading = {"raw_payload": payload}
+    assert dashboard_service._weather_scene(reading, "Asia/Manila", now, stale=False) == "moon"
+    assert dashboard_service._weather_scene(reading, "America/New_York", now, stale=False) == "sun"
+
+
+def test_stale_rain_does_not_claim_current_rain():
+    reading = {"raw_payload": {"current": {"is_day": 1, "weather_code": 61}}}
+    now = datetime(2026, 10, 21, 19, tzinfo=timezone.utc)
+    assert dashboard_service._weather_scene(reading, "Asia/Manila", now, stale=True) == "moon"
 
 
 def test_stale_reading_is_not_treated_as_current(monkeypatch):

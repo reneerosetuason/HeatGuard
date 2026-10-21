@@ -1782,14 +1782,19 @@ class _WeatherCard extends StatelessWidget {
           ),
           child: Stack(
             children: [
-              const Positioned(
+              Positioned(
                 right: -30,
                 top: 2,
                 bottom: 0,
                 child: ExcludeSemantics(
                   child: SizedBox(
                     width: 180,
-                    child: CustomPaint(painter: _HeatIllustrationPainter()),
+                    child: CustomPaint(
+                      key: ValueKey('weather-scene-${dashboard.weatherScene}'),
+                      painter: _HeatIllustrationPainter(
+                        scene: dashboard.weatherScene,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1945,7 +1950,8 @@ class _WeatherCard extends StatelessWidget {
 }
 
 class _HeatIllustrationPainter extends CustomPainter {
-  const _HeatIllustrationPainter();
+  const _HeatIllustrationPainter({required this.scene});
+  final String scene;
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width * 0.66, size.height * 0.43);
@@ -1956,16 +1962,87 @@ class _HeatIllustrationPainter extends CustomPainter {
     for (final radius in [68.0, 94.0, 121.0]) {
       canvas.drawCircle(center, radius, orbit);
     }
-    final sun = Paint()
+    final symbol = Paint()
       ..color = HeatGuardColors.gold
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.4
       ..strokeCap = StrokeCap.round;
-    canvas.drawCircle(center, 24, sun);
-    for (var i = 0; i < 12; i++) {
-      final angle = i * math.pi / 6;
-      final direction = Offset(math.cos(angle), math.sin(angle));
-      canvas.drawLine(center + direction * 33, center + direction * 40, sun);
+    switch (scene) {
+      case 'moon':
+        final crescent = Path.combine(
+          PathOperation.difference,
+          Path()..addOval(Rect.fromCircle(center: center, radius: 27)),
+          Path()..addOval(
+            Rect.fromCircle(center: center + const Offset(14, -11), radius: 24),
+          ),
+        );
+        canvas.drawPath(crescent, symbol);
+        for (final star in [
+          const Offset(-37, -25),
+          const Offset(25, -38),
+          const Offset(-42, 20),
+        ]) {
+          final point = center + star;
+          canvas.drawLine(
+            point - const Offset(3, 0),
+            point + const Offset(3, 0),
+            symbol,
+          );
+          canvas.drawLine(
+            point - const Offset(0, 3),
+            point + const Offset(0, 3),
+            symbol,
+          );
+        }
+      case 'rain':
+        symbol.color = const Color(0xFFCEE1E9);
+        final cloud = Path()
+          ..moveTo(center.dx - 26, center.dy + 9)
+          ..cubicTo(
+            center.dx - 46,
+            center.dy + 7,
+            center.dx - 43,
+            center.dy - 19,
+            center.dx - 24,
+            center.dy - 18,
+          )
+          ..cubicTo(
+            center.dx - 25,
+            center.dy - 42,
+            center.dx + 13,
+            center.dy - 45,
+            center.dx + 18,
+            center.dy - 20,
+          )
+          ..cubicTo(
+            center.dx + 41,
+            center.dy - 23,
+            center.dx + 44,
+            center.dy + 9,
+            center.dx + 22,
+            center.dy + 9,
+          )
+          ..close();
+        canvas.drawPath(cloud, symbol);
+        symbol.color = const Color(0xFF91C8DC);
+        for (final x in [-21.0, 0.0, 21.0]) {
+          canvas.drawLine(
+            center + Offset(x, 19),
+            center + Offset(x - 5, 30),
+            symbol,
+          );
+        }
+      default:
+        canvas.drawCircle(center, 24, symbol);
+        for (var i = 0; i < 12; i++) {
+          final angle = i * math.pi / 6;
+          final direction = Offset(math.cos(angle), math.sin(angle));
+          canvas.drawLine(
+            center + direction * 33,
+            center + direction * 40,
+            symbol,
+          );
+        }
     }
     canvas.drawCircle(
       center + const Offset(-60, 60),
@@ -1980,7 +2057,8 @@ class _HeatIllustrationPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _HeatIllustrationPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _HeatIllustrationPainter oldDelegate) =>
+      oldDelegate.scene != scene;
 }
 
 class _WeatherMetric extends StatelessWidget {

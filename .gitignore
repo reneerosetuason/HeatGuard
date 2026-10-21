@@ -19,6 +19,8 @@ env/
 # Logs and runtime output
 logs/
 *.log
+# Local APK downloads for installing on a phone over Wi-Fi.
+/frontend/web/static/downloads/
 
 # Test / tooling caches
 .pytest_cache/

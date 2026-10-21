@@ -51,6 +51,17 @@ def make_payload(temp=32.0, humidity=70.0, minutes_ago=10):
 
 
 class ValidResponseTests(unittest.TestCase):
+    def test_condition_fields_are_requested_and_preserved(self):
+        payload = make_payload()
+        payload["current"].update(weather_code=61, precipitation=0.8, is_day=0)
+        with mock.patch.object(weather.requests, "get", return_value=_FakeResponse(payload)) as get:
+            observation = weather.fetch_current_weather(LOCATION)
+        requested = set(get.call_args.kwargs["params"]["current"].split(","))
+        self.assertTrue({"weather_code", "precipitation", "is_day"}.issubset(requested))
+        self.assertEqual(observation.raw_payload["current"]["weather_code"], 61)
+        self.assertEqual(observation.raw_payload["current"]["precipitation"], 0.8)
+        self.assertEqual(observation.raw_payload["current"]["is_day"], 0)
+
     def test_parses_valid_payload(self):
         with mock.patch.object(
             weather.requests, "get", return_value=_FakeResponse(make_payload())
