@@ -7,6 +7,7 @@ import '../models/mobile_account.dart';
 import '../services/heatguard_api.dart';
 import '../services/mobile_auth_controller.dart';
 import '../theme/heatguard_theme.dart';
+import '../widgets/heatguard_brand.dart';
 
 enum _AuthStep { signIn, register, verify }
 
@@ -166,24 +167,10 @@ class _AuthScreenState extends State<AuthScreen> {
                   children: [
                     Row(
                       children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: HeatGuardColors.teal,
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: const Icon(
-                            Icons.shield_outlined,
-                            color: Colors.white,
-                            size: 25,
-                          ),
-                        ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Text(
-                            'HeatGuard',
-                            style: theme.textTheme.titleLarge,
+                        const Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: HeatGuardLogo(width: 150),
                           ),
                         ),
                         IconButton(

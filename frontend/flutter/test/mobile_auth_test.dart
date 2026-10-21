@@ -279,6 +279,16 @@ void main() {
   Future<void> capture(WidgetTester tester, String name) async {
     if (!const bool.fromEnvironment('CAPTURE_MOBILE_PREVIEWS')) return;
     await tester.runAsync(() async {
+      final context = tester.element(
+        find.byKey(const ValueKey('auth-preview')),
+      );
+      await precacheImage(
+        const AssetImage('assets/branding/heatguard_logo.png'),
+        context,
+      );
+    });
+    await tester.pump();
+    await tester.runAsync(() async {
       final boundary = tester.renderObject<RenderRepaintBoundary>(
         find.byKey(const ValueKey('auth-preview')),
       );

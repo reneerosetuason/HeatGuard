@@ -14,6 +14,7 @@ import '../widgets/notification_sidebar.dart';
 import 'routines_screen.dart';
 import '../services/heatguard_api.dart';
 import '../widgets/history_chart_card.dart';
+import '../widgets/heatguard_brand.dart';
 import '../theme/heatguard_theme.dart';
 import 'location_manager_sheet.dart';
 
@@ -662,30 +663,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         titleSpacing: 22,
         title: Row(
           children: [
-            Container(
-              width: 43,
-              height: 43,
-              decoration: BoxDecoration(
-                color: HeatGuardColors.teal,
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: const Icon(
-                Icons.shield_outlined,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
+            const HeatGuardMark(size: 43),
             const SizedBox(width: 11),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'HeatGuard',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                  const HeatGuardWordmark(),
                   if (MediaQuery.textScalerOf(context).scale(10) <= 14)
                     const Text(
                       'A little awareness. A safer day.',

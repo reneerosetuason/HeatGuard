@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/mobile_auth_controller.dart';
-import '../theme/heatguard_theme.dart';
+import '../widgets/heatguard_brand.dart';
 import 'auth_screen.dart';
 import 'dashboard_screen.dart';
 
@@ -38,11 +38,7 @@ class _AuthGateState extends State<AuthGate> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.shield_outlined,
-                  color: HeatGuardColors.teal,
-                  size: 48,
-                ),
+                HeatGuardLogo(width: 200),
                 SizedBox(height: 22),
                 Text(
                   'Welcome to HeatGuard',
