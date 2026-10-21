@@ -56,6 +56,15 @@ MOBILE_OTP_MAX_ATTEMPTS = 5
 MOBILE_OTP_MAX_SENDS_PER_HOUR = 5
 MOBILE_SESSION_DAYS = 7
 
+# Routine advice and Android push. Secrets stay on the Python server.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
+GROQ_TIMEOUT_SECONDS = 12
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+ROUTINES_ENABLED = _env_bool("ROUTINES_ENABLED", True)
+ROUTINE_LIMIT_PER_USER = 20
+
 # ---- Authentication and write protection ----
 # When ADMIN_PASSWORD is set, changing HeatGuard data requires an admin login.
 # Without a password, only requests from the local machine may change data.
@@ -93,6 +102,11 @@ WEB_CORS_PATH_METHODS = {
     "/api/mobile/auth/resend": ("POST",),
     "/api/mobile/auth/login": ("POST",),
     "/api/mobile/auth/logout": ("POST",),
+    "/api/mobile/routines": ("GET", "POST"),
+    "/api/mobile/notifications": ("GET",),
+    "/api/mobile/notifications/read-all": ("POST",),
+    "/api/mobile/devices/register": ("POST",),
+    "/api/mobile/devices/remove": ("POST",),
     "/api/mobile/login": ("POST",),
     "/api/mobile/logout": ("POST",),
     "/api/refresh": ("POST",),

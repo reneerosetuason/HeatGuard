@@ -32,6 +32,7 @@ from services import geocoding as geocoding_service
 from services import push_notifications as push_service
 from services import security
 from services import mobile_auth
+from services import routine_api
 from services.monitoring import (
     cooldown_remaining,
     get_scheduler,
@@ -206,7 +207,7 @@ def create_app(
         if (
             app.config.get("START_MONITOR")
             and get_scheduler() is None
-            and (config.MONITOR_ENABLED or push_service.push_configured())
+            and (config.MONITOR_ENABLED or push_service.push_configured() or config.ROUTINES_ENABLED)
         ):
             start_scheduler()
 
@@ -286,6 +287,10 @@ def create_app(
         if cors_path.startswith("/api/mobile/data/"):
             cors_path = "/api/" + cors_path.removeprefix("/api/mobile/data/")
         cors_methods = config.WEB_CORS_PATH_METHODS.get(cors_path, ())
+        if re.fullmatch(r"/api/mobile/routines/\d+", cors_path):
+            cors_methods = ("POST", "DELETE")
+        if re.fullmatch(r"/api/mobile/routines/\d+/preview|/api/mobile/notifications/\d+/read", cors_path):
+            cors_methods = ("POST",)
         if re.fullmatch(r"/api/locations/\d+", cors_path):
             cors_methods = ("DELETE",)
         requested_method = request.headers.get(
@@ -945,6 +950,7 @@ def create_app(
         return jsonify({"ok": True, "message": "Daily notifications are off on this device."})
 
     app.register_blueprint(mobile_auth.blueprint)
+    app.register_blueprint(routine_api.blueprint)
     mobile_routes = [
         ("/dashboard", "api_dashboard", ["GET"]),
         ("/locations", "api_locations", ["GET"]),

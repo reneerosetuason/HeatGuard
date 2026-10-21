@@ -9,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/heatguard_models.dart';
 import '../models/mobile_account.dart';
 import '../services/daily_notification_service.dart';
+import '../services/routines_controller.dart';
+import '../widgets/notification_sidebar.dart';
+import 'routines_screen.dart';
 import '../services/heatguard_api.dart';
 import '../widgets/history_chart_card.dart';
 import '../theme/heatguard_theme.dart';
@@ -38,6 +41,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   late final HeatGuardApi _api = widget.api ?? HeatGuardApi();
   final PageController _pageController = PageController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  RoutinesController? _routines;
   int _selectedTab = 0;
   final DailyNotificationService _notifications = DailyNotificationService();
 
@@ -77,6 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void dispose() {
+    _routines?.dispose();
     _autoRefreshTimer?.cancel();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -89,6 +95,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_routines?.resume());
     if (state == AppLifecycleState.resumed && !_loading) {
       _loadDashboard(silent: true);
     }
@@ -113,6 +120,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       _reminderHour = savedHour ?? 8;
       _reminderMinute = savedMinute ?? 0;
       _historyHours = savedHistoryHours == 168 ? 168 : 24;
+
+      if (!mounted) return;
+      if (widget.account != null) {
+        _routines = RoutinesController(
+          api: _api,
+          baseUrl: _apiBaseUrl,
+          accountId: widget.account!.id,
+        )..onOpenInbox = _openInbox;
+        setState(() {});
+      }
 
       try {
         _applyCapabilities(await _api.fetchMobileConfig(_apiBaseUrl));
@@ -143,7 +160,10 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
       }
 
-      if (mounted) setState(() {});
+      if (mounted) {
+        unawaited(_routines?.initialize());
+        setState(() {});
+      }
       await _loadDashboard();
     } catch (error) {
       if (!mounted) return;
@@ -279,6 +299,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final passwordController = TextEditingController();
     final credentials = await showDialog<Map<String, String>>(
       context: context,
+      useRootNavigator: false,
       builder: (dialogContext) => AlertDialog(
         title: const Text('HeatGuard administrator sign in'),
         content: Column(
@@ -437,6 +458,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final location = _dashboard!.location;
     final confirmed = await showDialog<bool>(
       context: context,
+      useRootNavigator: false,
       builder: (context) => AlertDialog(
         title: const Text('Stop monitoring this location?'),
         content: Text(
@@ -470,6 +492,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final controller = TextEditingController(text: _apiBaseUrl);
     final value = await showDialog<String>(
       context: context,
+      useRootNavigator: false,
       builder: (context) => AlertDialog(
         title: const Text('HeatGuard server'),
         content: TextField(
@@ -570,6 +593,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _chooseReminderTime() async {
     final selected = await showTimePicker(
       context: context,
+      useRootNavigator: false,
       initialTime: TimeOfDay(hour: _reminderHour, minute: _reminderMinute),
       helpText: 'Choose your daily HeatGuard update time',
     );
@@ -611,6 +635,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     final dashboard = _dashboard;
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: _routines == null
+          ? null
+          : NotificationSidebar(controller: _routines!),
       appBar: AppBar(
         titleSpacing: 22,
         title: Row(
@@ -655,6 +683,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           ],
         ),
         actions: [
+          if (_routines != null) ...[
+            IconButton(
+              tooltip: 'My routines',
+              onPressed: _openRoutines,
+              icon: const Icon(Icons.event_note_outlined),
+            ),
+            NotificationBell(controller: _routines!, onPressed: _openInbox),
+          ],
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: IconButton.outlined(
@@ -721,6 +757,31 @@ class _DashboardScreenState extends State<DashboardScreen>
                 icon: const Icon(Icons.add_location_alt_outlined, size: 19),
                 label: const Text('Add a monitoring location'),
               ),
+              if (_routines != null) ...[
+                const SizedBox(height: 20),
+                Card(
+                  color: HeatGuardColors.mint,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    leading: const Icon(
+                      Icons.event_available_outlined,
+                      color: HeatGuardColors.teal,
+                    ),
+                    title: const Text(
+                      'Plan your day',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text(
+                      'Weather reminders for school, work, and everyday plans.',
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _openRoutines,
+                  ),
+                ),
+              ],
             ],
           ]),
           _page(1, [
@@ -974,6 +1035,23 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _openInbox() {
+    if (!mounted) return;
+    unawaited(_routines?.reload());
+    _scaffoldKey.currentState?.openEndDrawer();
+  }
+
+  void _openRoutines() {
+    final routines = _routines;
+    if (routines == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            RoutinesScreen(controller: routines, locations: _locations),
       ),
     );
   }

@@ -1,5 +1,8 @@
 # Environment / secrets
 .env
+# Firebase Admin credentials belong outside the repository.
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
 
 # Web Push VAPID keys (generated locally for mobile app notifications)
 private_key.pem

@@ -21,11 +21,18 @@ class Cursor:
         self.cursor.close()
 
     def execute(self, sql, values=()):
-        self.cursor.execute(sql.replace("%s", "?").replace(" FOR UPDATE", ""), values)
+        self.cursor.execute(sql.replace("%s", "?").replace(" FOR UPDATE", "").replace("INSERT IGNORE", "INSERT OR IGNORE"), values)
 
     def fetchone(self):
         row = self.cursor.fetchone()
         return dict(row) if row else None
+
+    def fetchall(self):
+        return [dict(row) for row in self.cursor.fetchall()]
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
 
     @property
     def lastrowid(self):

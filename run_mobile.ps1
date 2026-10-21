@@ -42,7 +42,10 @@ try {
     foreach ($name in @('HOST', 'PORT', 'WEB_CORS_ORIGINS')) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
     }
-    $env:HOST = '127.0.0.1'
+    # Respect HOST from .env so phone access survives a launcher restart.
+    $configuredHost = & $pythonPath -c "import config, os; print(os.getenv('HOST', '127.0.0.1'))"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the API host configuration.' }
+    $env:HOST = $configuredHost.Trim()
     $env:PORT = '5000'
     $env:WEB_CORS_ORIGINS = "$previewOrigin,http://127.0.0.1:$WebPort"
 

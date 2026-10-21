@@ -122,6 +122,18 @@ class _AuthApi extends HeatGuardApi {
   }
 
   @override
+  Future<Map<String, dynamic>> fetchRoutines(String baseUrl) async => {
+    'routines': [],
+    'push_available': false,
+    'reminders_enabled': true,
+  };
+  @override
+  Future<Map<String, dynamic>> fetchNotifications(String baseUrl) async => {
+    'notifications': [],
+    'unread_count': 0,
+  };
+
+  @override
   Future<HeatDashboard> fetchDashboard(
     String baseUrl, {
     required int locationId,
@@ -363,10 +375,15 @@ void main() {
         ..values[HeatGuardApi.defaultBaseUrl] = 'restored-session';
       final auth = await mount(tester, api, tokens);
       expect(find.text('Feels like outside'), findsOneWidget);
+      await tester.tap(find.byTooltip('My routines'));
+      await tester.pumpAndSettle();
+      await tap(tester, 'Add routine');
+      expect(find.byKey(const ValueKey('routine-title')), findsOneWidget);
       await auth.api.onAuthenticationRequired!();
       await tester.pumpAndSettle();
       expect(find.text('Welcome back.'), findsOneWidget);
       expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byKey(const ValueKey('routine-title')), findsNothing);
       expect(tokens.values, isEmpty);
       await tester.pumpWidget(const SizedBox());
     },

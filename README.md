@@ -40,6 +40,10 @@ hardware, no sensor, no SMS credits, and no paid services**.
 - **Native mobile app** — the `frontend/flutter/` Flutter project includes
   location management, current conditions, history charts, active and recent
   alerts, recommendations, and daily Android/iOS device notifications.
+- **Personal routines** — verified Flutter users can schedule recurring activities,
+  receive weather-based reminders with optional Groq tips and Android Firebase push,
+  and read their private notification sidebar. See the
+  [routine setup guide](frontend/flutter/README.md#weather-reminders-for-personal-routines).
 
 ---
 
@@ -288,6 +292,12 @@ MAE, RMSE, bias, percentage within 1/2 °C, and category agreement.
 | POST | `/api/mobile/auth/login` | Sign in with a verified email and password |
 | POST | `/api/mobile/auth/logout` | Revoke the mobile account session |
 | GET/POST/DELETE | `/api/mobile/data/*` | Flutter data routes requiring a verified account; writes retain administrator checks |
+| GET/POST | `/api/mobile/routines` | List or create the signed-in user's routines |
+| POST/DELETE | `/api/mobile/routines/<id>` | Edit, pause, or delete an owned routine |
+| POST | `/api/mobile/routines/<id>/preview` | Preview forecast advice without sending a reminder |
+| GET | `/api/mobile/notifications` | Personal notification inbox and unread count |
+| POST | `/api/mobile/notifications/<id>/read`, `/api/mobile/notifications/read-all` | Mark personal notifications read |
+| POST | `/api/mobile/devices/register`, `/api/mobile/devices/remove` | Register or remove this session's Android FCM token |
 | POST | `/api/mobile/push/subscribe` | Save this device's daily notification settings |
 | POST | `/api/mobile/push/unsubscribe` | Disable notifications for this device |
 | GET/POST | `/admin/login` | Admin sign-in (required when `ADMIN_PASSWORD` is set) |

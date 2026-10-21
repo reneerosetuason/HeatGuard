@@ -154,12 +154,14 @@ class MonitoringScheduler:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._push_thread: threading.Thread | None = None
+        self._routine_thread: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
         return bool(
             (self._thread is not None and self._thread.is_alive())
             or (self._push_thread is not None and self._push_thread.is_alive())
+            or (self._routine_thread is not None and self._routine_thread.is_alive())
         )
 
     def start(self) -> None:
@@ -187,6 +189,23 @@ class MonitoringScheduler:
             )
             self._push_thread.start()
             logger.info("Daily mobile push scheduler started")
+
+        if config.ROUTINES_ENABLED:
+            self._routine_thread = threading.Thread(target=self._run_routines, name="heatguard-routines", daemon=True)
+            self._routine_thread.start()
+            logger.info("Personal routine scheduler started")
+
+    def _run_routines(self) -> None:
+        from services.routine_jobs import run_due_routines
+        if self._stop_event.wait(3):
+            return
+        while not self._stop_event.is_set():
+            try:
+                run_due_routines()
+            except Exception as error:
+                logger.warning("Routine scheduler unavailable (%s)", type(error).__name__)
+            if self._stop_event.wait(60):
+                break
 
     def _run(self) -> None:
         # Allow the web server to finish starting before the first API call.
@@ -217,6 +236,8 @@ class MonitoringScheduler:
             self._thread.join(timeout=5)
         if self._push_thread is not None:
             self._push_thread.join(timeout=5)
+        if self._routine_thread is not None:
+            self._routine_thread.join(timeout=5)
         logger.info("Background monitoring stopped")
 
 
@@ -234,7 +255,7 @@ def start_scheduler() -> MonitoringScheduler | None:
     global _scheduler
     from services import push_notifications
 
-    if not config.MONITOR_ENABLED and not push_notifications.push_configured():
+    if not config.MONITOR_ENABLED and not push_notifications.push_configured() and not config.ROUTINES_ENABLED:
         logger.info("Background monitoring and mobile push are disabled")
         return None
     with _scheduler_lock:

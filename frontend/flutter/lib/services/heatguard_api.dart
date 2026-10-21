@@ -38,6 +38,47 @@ class HeatGuardApi {
   Future<Map<String, dynamic>> accountSession(String baseUrl) =>
       _request(baseUrl, 'GET', '/api/mobile/auth/session');
 
+  Future<Map<String, dynamic>> fetchRoutines(String baseUrl) =>
+      _request(baseUrl, 'GET', '/api/mobile/routines');
+  Future<Map<String, dynamic>> saveRoutine(
+    String baseUrl,
+    Map<String, String> values, {
+    int? id,
+  }) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/routines${id == null ? '' : '/$id'}',
+    form: values,
+  );
+  Future<Map<String, dynamic>> deleteRoutine(String baseUrl, int id) =>
+      _request(baseUrl, 'DELETE', '/api/mobile/routines/$id');
+  Future<Map<String, dynamic>> previewRoutine(String baseUrl, int id) =>
+      _request(baseUrl, 'POST', '/api/mobile/routines/$id/preview');
+  Future<Map<String, dynamic>> fetchNotifications(String baseUrl) =>
+      _request(baseUrl, 'GET', '/api/mobile/notifications');
+  Future<Map<String, dynamic>> readNotification(String baseUrl, {int? id}) =>
+      _request(
+        baseUrl,
+        'POST',
+        '/api/mobile/notifications/${id == null ? 'read-all' : '$id/read'}',
+      );
+  Future<Map<String, dynamic>> registerPushDevice(
+    String baseUrl,
+    String token,
+  ) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/devices/register',
+    form: {'token': token, 'platform': 'android'},
+  );
+  Future<Map<String, dynamic>> removePushDevice(String baseUrl, String token) =>
+      _request(
+        baseUrl,
+        'POST',
+        '/api/mobile/devices/remove',
+        form: {'token': token},
+      );
+
   Future<Map<String, dynamic>> registerAccount(
     String baseUrl, {
     required String name,

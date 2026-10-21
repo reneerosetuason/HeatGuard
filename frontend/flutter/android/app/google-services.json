@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1088738958767",
+    "project_id": "heatguard-3fe84",
+    "storage_bucket": "heatguard-3fe84.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1088738958767:android:d860b1a08fb0a31fa9a35a",
+        "android_client_info": {
+          "package_name": "com.heatguard.heatguard_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDSHOxghrFoV8PzB_5FCjTI3u-XFVmKIfs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

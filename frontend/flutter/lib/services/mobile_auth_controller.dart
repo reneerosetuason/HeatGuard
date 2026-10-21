@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/mobile_account.dart';
 import 'heatguard_api.dart';
+import 'routine_push_service.dart';
 
 abstract class SessionTokenStore {
   Future<String?> read(String server);
@@ -155,9 +156,16 @@ class MobileAuthController extends ChangeNotifier {
 
   Future<void> _expireSession() async {
     account = null;
+    initializing = true;
     api.setMemberToken(baseUrl, null);
     _changed();
-    if (!kIsWeb) await _tokens.delete(baseUrl);
+    try {
+      if (!kIsWeb) await _tokens.delete(baseUrl);
+      await RoutinePushService.clearAccount();
+    } finally {
+      initializing = false;
+      _changed();
+    }
   }
 
   Future<void> changeServer(String value) async {

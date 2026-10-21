@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -66,7 +67,14 @@ def init_db() -> int:
 
 def init_mobile_auth() -> int:
     """Add only the account tables; leave existing locations and readings intact."""
-    migration = (config.BASE_DIR / "sql" / "mobile_accounts.sql").read_text(encoding="utf-8")
+    migration_path = config.BASE_DIR / "sql" / "mobile_accounts.sql"
+    if migration_path.is_file():
+        migration = migration_path.read_text(encoding="utf-8")
+    else:
+        # The full schema also supports repositories that keep a single SQL source.
+        schema = (config.BASE_DIR / "sql" / "schema.sql").read_text(encoding="utf-8")
+        migration = ";".join(statement for statement in schema.split(";") if re.search(
+            r"CREATE TABLE IF NOT EXISTS `?(?:mobile_users|mobile_registration_challenges|mobile_user_sessions)`?\s*\(", statement))
     try:
         with db.connection() as conn:
             with conn.cursor() as cursor:
@@ -77,6 +85,23 @@ def init_mobile_auth() -> int:
         print("Could not create the mobile account tables. Check MySQL and the database permissions.", file=sys.stderr)
         return 1
     print("Mobile account, verification, and session tables are ready.")
+    return 0
+
+
+def init_mobile_routines() -> int:
+    if init_mobile_auth() != 0:
+        return 1
+    migration = (config.BASE_DIR / "sql" / "mobile_routines.sql").read_text(encoding="utf-8")
+    try:
+        with db.connection() as conn:
+            with conn.cursor() as cursor:
+                for statement in migration.split(";"):
+                    if statement.strip():
+                        cursor.execute(statement)
+    except (db.DatabaseError, pymysql.MySQLError):
+        print("Could not create routine tables. Check MySQL and database permissions.", file=sys.stderr)
+        return 1
+    print("Personal routine, notification inbox, and push delivery tables are ready.")
     return 0
 
 
@@ -208,6 +233,7 @@ def main() -> int:
 
     subparsers.add_parser("init-db", help="Create database, tables, and seeds")
     subparsers.add_parser("init-mobile-auth", help="Add verified mobile accounts to an existing database")
+    subparsers.add_parser("init-mobile-routines", help="Add personal routines and notification tables")
 
     subparsers.add_parser(
         "monitor-once", help="Fetch and store one reading for every location"
@@ -240,6 +266,8 @@ def main() -> int:
         return init_db()
     if args.command == "init-mobile-auth":
         return init_mobile_auth()
+    if args.command == "init-mobile-routines":
+        return init_mobile_routines()
     if args.command == "monitor-once":
         return monitor_once()
     if args.command == "backfill":

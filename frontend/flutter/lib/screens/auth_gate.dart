@@ -57,12 +57,18 @@ class _AuthGateState extends State<AuthGate> {
       }
       final account = _auth.account;
       if (account == null) return AuthScreen(controller: _auth);
-      return DashboardScreen(
-        key: ValueKey('${_auth.baseUrl}/${account.id}'),
-        api: _auth.api,
-        account: account,
-        onAccountSignOut: _auth.signOut,
-        onServerChanged: _auth.changeServer,
+      return HeroControllerScope.none(
+        child: Navigator(
+          key: ValueKey('${_auth.baseUrl}/${account.id}'),
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => DashboardScreen(
+              api: _auth.api,
+              account: account,
+              onAccountSignOut: _auth.signOut,
+              onServerChanged: _auth.changeServer,
+            ),
+          ),
+        ),
       );
     },
   );
