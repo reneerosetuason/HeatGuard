@@ -196,13 +196,15 @@ def _history_payload(location_id: int, timezone_name: str, hours: int) -> dict:
 
 
 def build_dashboard(
-    location_id: int | str | None = None, hours: int | None = None
+    location_id: int | str | None = None, hours: int | None = None,
+    *, scoped_locations: list[dict] | None = None
 ) -> dict:
-    locations = get_locations()
+    locations = get_locations() if scoped_locations is None else scoped_locations
     if not locations:
         raise LookupError("No active monitoring locations are configured")
 
-    location = resolve_location(location_id)
+    location = resolve_location(location_id) if scoped_locations is None else next(
+        (item for item in locations if str(item["id"]) == str(location_id)), locations[0])
     selected_id = int(location["id"])
     timezone_name = location.get("timezone") or "Asia/Manila"
     now = datetime.now(UTC)

@@ -50,12 +50,14 @@ class RoutineNotice {
     required this.read,
     required this.aiGenerated,
     required this.createdAt,
+    this.scheduledFor,
     this.weather,
   });
   final int id;
   final String title, body;
   final bool read, aiGenerated;
   final DateTime createdAt;
+  final DateTime? scheduledFor;
   final Map<String, dynamic>? weather;
   factory RoutineNotice.fromJson(Map<String, dynamic> data) => RoutineNotice(
     id: data['id'] as int,
@@ -64,6 +66,7 @@ class RoutineNotice {
     read: data['read'] == true,
     aiGenerated: data['ai_generated'] == true,
     createdAt: DateTime.parse(data['created_at'] as String),
+    scheduledFor: DateTime.tryParse(data['scheduled_for'] as String? ?? ''),
     weather: data['weather'] as Map<String, dynamic>?,
   );
 }

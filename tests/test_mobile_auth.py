@@ -65,6 +65,11 @@ def state(monkeypatch):
         CREATE TABLE mobile_user_sessions (
             token_hash TEXT PRIMARY KEY, user_id INTEGER,
             expires_at DATETIME, created_at DATETIME);
+        CREATE TABLE locations (id INTEGER PRIMARY KEY,name TEXT UNIQUE,latitude REAL,
+            longitude REAL,timezone TEXT DEFAULT 'Asia/Manila',is_active BOOLEAN);
+        CREATE TABLE mobile_saved_locations (location_id INTEGER PRIMARY KEY REFERENCES locations(id),
+            user_id INTEGER REFERENCES mobile_users(id) ON DELETE SET NULL,display_name TEXT,
+            created_at DATETIME,UNIQUE(user_id,display_name));
     """)
 
     @contextmanager

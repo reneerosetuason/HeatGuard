@@ -33,6 +33,7 @@ from services import push_notifications as push_service
 from services import security
 from services import mobile_auth
 from services import routine_api
+from services import private_location_api
 from services.monitoring import (
     cooldown_remaining,
     get_scheduler,
@@ -790,6 +791,7 @@ def create_app(
                 "can_write": security.can_write(),
                 "admin_configured": security.admin_configured(),
                 "is_admin": security.is_admin(),
+                "can_manage_personal_locations": bool(mobile_auth.current_user()),
             }
         )
 
@@ -951,18 +953,13 @@ def create_app(
 
     app.register_blueprint(mobile_auth.blueprint)
     app.register_blueprint(routine_api.blueprint)
+    app.register_blueprint(private_location_api.blueprint)
     mobile_routes = [
-        ("/dashboard", "api_dashboard", ["GET"]),
-        ("/locations", "api_locations", ["GET"]),
         ("/geocode", "api_geocode", ["GET"]),
         ("/address/regions", "api_address_regions", ["GET"]),
         ("/address/provinces", "api_address_provinces", ["GET"]),
         ("/address/cities", "api_address_cities", ["GET"]),
         ("/address/barangays", "api_address_barangays", ["GET"]),
-        ("/locations", "api_create_location", ["POST"]),
-        ("/locations/address", "api_create_location_from_address", ["POST"]),
-        ("/locations/<int:location_id>", "api_delete_location", ["DELETE"]),
-        ("/refresh", "api_refresh", ["POST"]),
     ]
     for path, view_name, methods in mobile_routes:
         endpoint_name = "mobile_data_" + view_name

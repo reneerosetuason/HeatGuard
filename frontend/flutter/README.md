@@ -18,7 +18,9 @@ This Flutter project is kept in `frontend/flutter`. It provides the HeatGuard da
 - Save personal recurring routines, preview weather advice, and receive Android Firebase push reminders with optional Groq personalization.
 - Open the notification bell for a persistent sidebar inbox, unread counts, and mark-as-read controls.
 
-Location changes and manual refresh use the same authorization and CSRF protections as the web dashboard. When administrator authentication is enabled, sign in from the app before making changes. When it is not enabled, server-side local-host write restrictions still apply.
+Signed-in users can add, view, refresh, and remove their own private addresses without an administrator login. Address and routine writes require a verified account and CSRF protection. The shared web dashboard and its monitoring locations retain their administrator/host restrictions.
+
+For an existing database, run `.\.venv\Scripts\python.exe manage.py init-mobile-locations` from the repository root and restart the API, then rebuild the Flutter app. This creates `mobile_saved_locations` and copies any legacy routine addresses into their owner's private list. Shared monitoring locations remain unchanged. New accounts start with **Add your first address**. Each account may save up to 20 active addresses; removing one pauses its routines and preserves its history privately.
 
 ## Account and email setup
 
@@ -76,7 +78,15 @@ Keep the downloaded Firebase Admin service-account JSON at the private path abov
 
 Run Flutter packages with `flutter pub get`, rebuild the Android app, sign in, and choose **My routines → Enable phone notifications**. Allow Android notification permission. Firebase push requires a device/emulator with Google Play services and network access. The Python API and its scheduler must remain running. For a physical phone, run the API on a reachable LAN address and configure the app's API address accordingly; use HTTPS for a deployed API.
 
-The scheduler checks every minute. Around the chosen reminder time it retrieves the Open-Meteo hourly forecast for the activity, calculates its heat index, and adds factual safety guidance. Groq may add a short preparation tip using the activity label and forecast; account email, account password, and device tokens are never sent to Groq. If Groq fails, weather guidance is still delivered. If the forecast fails, the message clearly says weather could not be checked. Forecasts are never saved as measured history. Reminders are informational and may be delayed by network or phone settings.
+The scheduler checks upcoming routines every five seconds and starts preparing the Open-Meteo forecast and Groq advice up to 90 seconds before the chosen reminder time. A separate delivery loop checks ready reminders every second, so a slow weather or AI request does not hold up a reminder that is already prepared. Preparation and delivery each use up to four workers. Prepared messages remain hidden from the inbox until their scheduled reminder time. Editing, pausing, or deleting a routine discards its future prepared advice. A newly added routine that is already due still needs time to generate its advice; create test routines at least two minutes ahead.
+
+The reminder time is the activity's local time minus the selected **minutes before** value. Groq writes the main reminder using the activity label, saved location name, activity's local date/time and time zone, time of day, and forecast. Sleeping at night can produce bedroom/airflow advice; studying can produce workspace advice; travel and exercise get different preparation. Advice supports arbitrary activity names. The notification then includes a short verified forecast summary and, for dangerous heat, an additional heat warning. Account email, password, device tokens, and precise coordinates are never sent to Groq.
+
+Opening or resuming the app restores notifications quietly without prompting for permission again. Successful registrations are refreshed at most every five minutes; failed attempts can retry on a later resume after 30 seconds. **Connecting…** is shown during an explicit enable request and **Pausing…** during a pause request. Offline registration does not erase the saved notification preference. It also does not mean an already registered phone has disconnected from Firebase.
+
+Run `python manage.py init-mobile-routines` when updating an existing server to add the timing fields without replacing data. `mobile_notifications.scheduled_for` records when the reminder is due, `prepared_at` records when advice was ready, and `mobile_notification_deliveries.sent_at` records FCM acceptance, not confirmed display on the phone. The server logs the delay between the scheduled time and FCM acceptance without including tokens or message content.
+
+AI-generated text replaces the repetitive water/shade/umbrella checklist. Activity-aware fallback guidance is used only when the AI is unavailable or returns unsuitable text. Even during a weather outage, Groq can write a general activity reminder; the notification explicitly says weather could not be checked. Outdoor forecasts are never treated as measured room temperatures, and opening windows is conditional on cooler outside air and safe conditions. Forecasts are never saved as measured history. Reminders are informational and may be delayed by network or phone settings. **Preview reminder** uses the same generation path as scheduled notifications.
 
 Each occurrence is saved once in the account's inbox, with retry work tracked separately for Android delivery. The bell opens the latest 100 notifications; mark individual messages or all messages read. Past messages remain after deleting a routine. Signing out revokes the device registration, and expired sessions stop push until the user signs in again. A server outage can catch up a reminder until five minutes after the activity; older missed reminders are skipped.
 
@@ -141,6 +151,8 @@ For a physical Android phone:
 
 `localhost` and `127.0.0.1` on a phone refer to the phone itself. `10.0.2.2` works for the Android emulator. `0.0.0.0` is the server's listening address; use the computer's actual LAN IP in the phone app. If DHCP later changes the computer's IP, update the saved app address. The computer and API must stay on for local testing.
 
+If Windows Firewall blocks Python, run `C:\HeatGuard\enable_phone_access.ps1` from PowerShell **as Administrator**. It allows only the HeatGuard Python executable on TCP port 5000, at the Wi-Fi address, from the local subnet. An existing blanket Python TCP block is kept on all other ports; UDP rules are unchanged. The firewall stays enabled. Use `-WhatIf` to inspect the planned change without applying it, or `-InterfaceAlias 'YOUR_ADAPTER'` for a different adapter. Rerun after a change to the computer's Wi-Fi IP.
+
 If the app says it cannot reach the server, check that `http://localhost:5000/api/health` reports `database: "ok"`, and use the **Server settings** button on the error card to check the address. The local Chrome preview uses `http://localhost:5000`; Android emulators use `http://10.0.2.2:5000`. Restart the Python server after changing `.env`.
 
 ## Check the mobile interface
@@ -156,6 +168,8 @@ flutter test --dart-define=CAPTURE_MOBILE_PREVIEWS=true
 These previews use test weather data.
 
 ## Daily notification behavior
+
+Routine reminders use Firebase Cloud Messaging separately from the daily local reminder. After enabling phone notifications in **My routines**, Android can display them while HeatGuard is backgrounded, normally closed, or the screen is locked. The account session must remain valid, notification permission must stay enabled, the phone needs internet, and the Python server/scheduler needs to stay running. Android **Force stop** prevents delivery until the app is opened again. Manufacturer battery restrictions may delay delivery. Routine notices are also saved in the account's sidebar inbox.
 
 The app downloads the weather and recommendations from `/api/mobile/data/dashboard`, then stores that message in the operating system's local notification scheduler. Android and iOS can deliver it every day while the app is closed; Android also reschedules it after a device reboot. The scheduled message contains the most recently downloaded reading. Opening the app or refreshing the dashboard updates the next daily message. The app asks for notification permission after sign-in; the user can change the daily time or pause the reminder in the dashboard. Signing out cancels scheduled account notifications.
 

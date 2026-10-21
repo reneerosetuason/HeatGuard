@@ -13,6 +13,8 @@ Future<void> routineBackgroundMessage(RemoteMessage message) async {
 class RoutinePushService {
   static bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  bool get isSupported => supported;
+  static const _timeout = Duration(seconds: 15);
   static const channel = AndroidNotificationChannel(
     'heatguard_routines',
     'Routine reminders',
@@ -30,33 +32,41 @@ class RoutinePushService {
     required Future<void> Function(String) onToken,
     required VoidCallback onMessage,
     required void Function(int?) onOpen,
+    bool requestPermission = true,
   }) async {
     if (!supported) {
       throw StateError('Push notifications are available in the Android app.');
     }
-    if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp().timeout(_timeout);
+    }
     if (_closed) return;
-    await _notifications.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('ic_stat_heatguard'),
-      ),
-      onDidReceiveNotificationResponse: (response) {
-        final id = int.tryParse(response.payload ?? '');
-        if (id != null && !_closed) onOpen(id);
-      },
-    );
+    await _notifications
+        .initialize(
+          const InitializationSettings(
+            android: AndroidInitializationSettings('ic_stat_heatguard'),
+          ),
+          onDidReceiveNotificationResponse: (response) {
+            final id = int.tryParse(response.payload ?? '');
+            if (id != null && !_closed) onOpen(id);
+          },
+        )
+        .timeout(_timeout);
     await _notifications
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >()
-        ?.createNotificationChannel(channel);
+        ?.createNotificationChannel(channel)
+        .timeout(_timeout);
     FirebaseMessaging.onBackgroundMessage(routineBackgroundMessage);
     final messaging = FirebaseMessaging.instance;
-    final permission = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    final permission = requestPermission
+        ? await messaging.requestPermission(
+            alert: true,
+            badge: true,
+            sound: true,
+          )
+        : await messaging.getNotificationSettings().timeout(_timeout);
     if (permission.authorizationStatus != AuthorizationStatus.authorized &&
         permission.authorizationStatus != AuthorizationStatus.provisional) {
       throw StateError(
@@ -64,8 +74,8 @@ class RoutinePushService {
       );
     }
     if (_closed) return;
-    await messaging.setAutoInitEnabled(true);
-    final nextToken = await messaging.getToken();
+    await messaging.setAutoInitEnabled(true).timeout(_timeout);
+    final nextToken = await messaging.getToken().timeout(_timeout);
     if (_closed) return;
     if (nextToken == null) {
       throw StateError(
@@ -73,8 +83,6 @@ class RoutinePushService {
       );
     }
     token = nextToken;
-    await onToken(nextToken);
-    if (_closed) return;
     await _cancelStreams();
     _subscriptions.add(
       messaging.onTokenRefresh.listen((value) async {
@@ -124,13 +132,17 @@ class RoutinePushService {
         }
       }),
     );
-    final initial = await messaging.getInitialMessage();
+    await onToken(nextToken);
+    if (_closed) return;
+    final initial = await messaging.getInitialMessage().timeout(_timeout);
     if (!_closed && initial?.data['account_id'] == '$accountId') {
       onOpen(int.tryParse(initial?.data['notification_id'] ?? ''));
     }
     if (!_launchHandled) {
       _launchHandled = true;
-      final launch = await _notifications.getNotificationAppLaunchDetails();
+      final launch = await _notifications
+          .getNotificationAppLaunchDetails()
+          .timeout(_timeout);
       final localId = int.tryParse(launch?.notificationResponse?.payload ?? '');
       if (!_closed &&
           launch?.didNotificationLaunchApp == true &&
@@ -138,6 +150,29 @@ class RoutinePushService {
         onOpen(localId);
       }
     }
+  }
+
+  Future<void> refresh({required Future<void> Function(String) onToken}) async {
+    if (_closed || !supported || Firebase.apps.isEmpty) return;
+    final messaging = FirebaseMessaging.instance;
+    final permission = await messaging.getNotificationSettings().timeout(
+      _timeout,
+    );
+    if (permission.authorizationStatus != AuthorizationStatus.authorized &&
+        permission.authorizationStatus != AuthorizationStatus.provisional) {
+      throw StateError(
+        'Allow HeatGuard notifications in your phone settings to receive reminders.',
+      );
+    }
+    final nextToken = await messaging.getToken().timeout(_timeout);
+    if (_closed) return;
+    if (nextToken == null) {
+      throw StateError(
+        'Your phone could not register for notifications. Try again.',
+      );
+    }
+    token = nextToken;
+    await onToken(nextToken);
   }
 
   Future<void> _cancelStreams() async {

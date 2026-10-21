@@ -37,6 +37,7 @@ class _AuthApi extends HeatGuardApi {
   bool verified = false;
   bool registrationRequested = false;
   int weatherReads = 0;
+  bool emptyPlaces = false;
   static const account = {
     'id': 1,
     'name': 'Alex',
@@ -112,14 +113,23 @@ class _AuthApi extends HeatGuardApi {
   @override
   Future<Map<String, dynamic>> fetchMobileConfig(String baseUrl) async => {
     'can_write': false,
+    'can_manage_personal_locations': true,
     'admin_configured': false,
     'is_admin': false,
   };
   @override
   Future<List<HeatLocation>> fetchLocations(String baseUrl) async {
     weatherReads++;
-    return const [HeatLocation(id: 1, name: 'Quezon City')];
+    return emptyPlaces ? [] : const [HeatLocation(id: 1, name: 'Quezon City')];
   }
+
+  @override
+  Future<List<AddressOption>> fetchAddressOptions(
+    String baseUrl, {
+    required String path,
+    required String key,
+    Map<String, String>? queryParameters,
+  }) async => [];
 
   @override
   Future<Map<String, dynamic>> fetchRoutines(String baseUrl) async => {
@@ -401,6 +411,22 @@ void main() {
     expect(tokens.values, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'members with no saved addresses can open the address picker without admin access',
+    (tester) async {
+      final api = _AuthApi()
+        ..user = _AuthApi.account
+        ..emptyPlaces = true;
+      await mount(tester, api, _MemoryTokens());
+      expect(find.text('Your places. Your weather.'), findsOneWidget);
+      await tap(tester, 'Add your first address');
+      expect(find.text('Browse address'), findsOneWidget);
+      expect(find.textContaining('Changes are restricted'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('small screens and large text support all authentication steps', (
     tester,

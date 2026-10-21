@@ -43,7 +43,7 @@ def public_routine(row):
             "weekdays": [int(day) for day in row["weekdays"].split(",")], "enabled": bool(row["enabled"])}
 
 
-ROUTINE_SELECT = "SELECT r.*, l.name AS location_name, l.latitude, l.longitude, l.is_active FROM mobile_routines r JOIN locations l ON l.id=r.location_id "
+ROUTINE_SELECT = "SELECT r.*, COALESCE(p.display_name,l.name) AS location_name, l.latitude, l.longitude, l.is_active FROM mobile_routines r JOIN locations l ON l.id=r.location_id LEFT JOIN mobile_saved_locations p ON p.location_id=l.id "
 
 
 def list_routines(user_id):
@@ -95,6 +95,8 @@ def validate(data):
 
 
 def save_routine(user_id, data, routine_id=None):
+    if routine_id is not None:
+        get_routine(user_id, routine_id)
     values = validate(data)
     now = utcnow()
     with db.connection() as connection:
@@ -103,7 +105,7 @@ def save_routine(user_id, data, routine_id=None):
             cursor.execute("SELECT id FROM mobile_users WHERE id=%s FOR UPDATE", (user_id,))
             if not cursor.fetchone():
                 raise AccountError("Sign in again.", 401)
-            cursor.execute("SELECT id FROM locations WHERE id=%s AND is_active=1", (values[1],))
+            cursor.execute("SELECT l.id FROM locations l JOIN mobile_saved_locations p ON p.location_id=l.id WHERE l.id=%s AND l.is_active=1 AND p.user_id=%s", (values[1], user_id))
             if not cursor.fetchone():
                 raise AccountError("Select an active monitoring location.")
             if routine_id is None:
@@ -117,26 +119,35 @@ def save_routine(user_id, data, routine_id=None):
                 if not cursor.rowcount:
                     raise AccountError("This routine was not found.", 404)
                 cursor.execute("UPDATE mobile_notification_deliveries SET state='cancelled' WHERE notification_id IN (SELECT id FROM mobile_notifications WHERE routine_id=%s AND user_id=%s) AND state IN ('pending','sending')", (routine_id, user_id))
+                cursor.execute("DELETE FROM mobile_notifications WHERE routine_id=%s AND user_id=%s AND (state='preparing' OR scheduled_for>%s)", (routine_id, user_id, now))
     return public_routine(get_routine(user_id, routine_id))
 
 
 def delete_routine(user_id, routine_id):
-    if not execute("DELETE FROM mobile_routines WHERE id=%s AND user_id=%s", (routine_id, user_id)):
-        raise AccountError("This routine was not found.", 404)
+    with db.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM mobile_routines WHERE id=%s AND user_id=%s FOR UPDATE", (routine_id, user_id))
+            if not cursor.fetchone():
+                raise AccountError("This routine was not found.", 404)
+            cursor.execute("DELETE FROM mobile_notifications WHERE routine_id=%s AND user_id=%s AND (state='preparing' OR scheduled_for>%s)", (routine_id, user_id, utcnow()))
+            cursor.execute("DELETE FROM mobile_routines WHERE id=%s AND user_id=%s", (routine_id, user_id))
 
 
 def inbox(user_id):
-    rows = execute("SELECT id,routine_id,event_at,title,body,weather_json,ai_generated,read_at,created_at FROM mobile_notifications WHERE user_id=%s AND state='ready' ORDER BY created_at DESC,id DESC LIMIT 100", (user_id,), rows=True)
-    unread = execute("SELECT COUNT(*) AS total FROM mobile_notifications WHERE user_id=%s AND state='ready' AND read_at IS NULL", (user_id,), one=True)["total"]
+    now = utcnow()
+    rows = execute("SELECT id,routine_id,event_at,scheduled_for,title,body,weather_json,ai_generated,read_at,created_at FROM mobile_notifications WHERE user_id=%s AND state='ready' AND (scheduled_for IS NULL OR scheduled_for<=%s) ORDER BY COALESCE(scheduled_for,created_at) DESC,id DESC LIMIT 100", (user_id, now), rows=True)
+    unread = execute("SELECT COUNT(*) AS total FROM mobile_notifications WHERE user_id=%s AND state='ready' AND (scheduled_for IS NULL OR scheduled_for<=%s) AND read_at IS NULL", (user_id, now), one=True)["total"]
     return [{"id": row["id"], "routine_id": row["routine_id"], "event_at": iso(row["event_at"]),
+             "scheduled_for": iso(row["scheduled_for"]),
              "title": row["title"], "body": row["body"], "weather": json.loads(row["weather_json"]) if isinstance(row["weather_json"], str) else row["weather_json"],
              "ai_generated": bool(row["ai_generated"]), "read": row["read_at"] is not None, "created_at": iso(row["created_at"])} for row in rows], unread
 
 
 def mark_read(user_id, notification_id=None):
-    if notification_id is not None and not execute("SELECT id FROM mobile_notifications WHERE id=%s AND user_id=%s AND state='ready'", (notification_id, user_id), one=True):
+    now = utcnow()
+    if notification_id is not None and not execute("SELECT id FROM mobile_notifications WHERE id=%s AND user_id=%s AND state='ready' AND (scheduled_for IS NULL OR scheduled_for<=%s)", (notification_id, user_id, now), one=True):
         raise AccountError("This notification was not found.", 404)
-    execute("UPDATE mobile_notifications SET read_at=%s WHERE user_id=%s AND state='ready' AND read_at IS NULL" + (" AND id=%s" if notification_id is not None else ""), (utcnow(), user_id, *((notification_id,) if notification_id is not None else ())))
+    execute("UPDATE mobile_notifications SET read_at=%s WHERE user_id=%s AND state='ready' AND read_at IS NULL AND (scheduled_for IS NULL OR scheduled_for<=%s)" + (" AND id=%s" if notification_id is not None else ""), (now, user_id, now, *((notification_id,) if notification_id is not None else ())))
 
 
 def register_device(user_id, session_token, token, platform):
@@ -155,11 +166,18 @@ def register_device(user_id, session_token, token, platform):
             existing = cursor.fetchone()
             if existing and existing["user_id"] == user_id and existing["session_hash"] == session_hash:
                 cursor.execute("UPDATE mobile_push_devices SET updated_at=%s WHERE token_hash=%s", (utcnow(), token_hash))
+                _queue_prepared_for_device(cursor, user_id, token_hash)
                 return
             # Remove old work before transferring an app instance between accounts.
             cursor.execute("DELETE FROM mobile_notification_deliveries WHERE token_hash=%s", (token_hash,))
             cursor.execute("DELETE FROM mobile_push_devices WHERE token_hash=%s", (token_hash,))
             cursor.execute("INSERT INTO mobile_push_devices (token_hash,token,user_id,session_hash,platform,updated_at) VALUES (%s,%s,%s,%s,%s,%s)", (token_hash, token, user_id, session_hash, platform, utcnow()))
+            _queue_prepared_for_device(cursor, user_id, token_hash)
+
+
+def _queue_prepared_for_device(cursor, user_id, token_hash):
+    # Enabling push shortly before an activity must include already prepared work.
+    cursor.execute("INSERT IGNORE INTO mobile_notification_deliveries (notification_id,token_hash,next_attempt_at) SELECT n.id,%s,n.scheduled_for FROM mobile_notifications n JOIN mobile_routines r ON r.id=n.routine_id WHERE n.user_id=%s AND n.state='ready' AND n.scheduled_for>%s AND r.enabled=1", (token_hash, user_id, utcnow()))
 
 
 def remove_device(user_id, token):
@@ -177,7 +195,8 @@ def claim_occurrence(routine, event_at, now):
     claim = secrets.token_hex(16)
     with db.connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute("INSERT IGNORE INTO mobile_notifications (user_id,routine_id,event_at,body,created_at) VALUES (%s,%s,%s,'',%s)", (routine["user_id"], routine["id"], event_at, now))
+            scheduled_for = event_at-timedelta(minutes=routine["remind_before_minutes"])
+            cursor.execute("INSERT IGNORE INTO mobile_notifications (user_id,routine_id,event_at,scheduled_for,body,created_at) VALUES (%s,%s,%s,%s,'',%s)", (routine["user_id"], routine["id"], event_at, scheduled_for, now))
             cursor.execute("UPDATE mobile_notifications SET claim_token=%s,lease_until=%s WHERE routine_id=%s AND event_at=%s AND state='preparing' AND (lease_until IS NULL OR lease_until<%s)", (claim, now+timedelta(minutes=2), routine["id"], event_at, now))
             if not cursor.rowcount:
                 return None
@@ -193,14 +212,16 @@ def finish_occurrence(routine, notification_id, claim, advice, now):
             if not current or not current["enabled"] or current["revision"] != routine["revision"]:
                 cursor.execute("DELETE FROM mobile_notifications WHERE id=%s AND claim_token=%s AND state='preparing'", (notification_id, claim))
                 return
-            cursor.execute("UPDATE mobile_notifications SET state='ready',title=%s,body=%s,weather_json=%s,ai_generated=%s,lease_until=NULL WHERE id=%s AND claim_token=%s AND state='preparing'", (advice["title"], advice["body"], json.dumps(advice["weather"]), advice["ai_generated"], notification_id, claim))
+            cursor.execute("UPDATE mobile_notifications SET state='ready',title=%s,body=%s,weather_json=%s,ai_generated=%s,prepared_at=%s,lease_until=NULL WHERE id=%s AND claim_token=%s AND state='preparing'", (advice["title"], advice["body"], json.dumps(advice["weather"]), advice["ai_generated"], now, notification_id, claim))
             if not cursor.rowcount:
                 return
-            cursor.execute("INSERT IGNORE INTO mobile_notification_deliveries (notification_id,token_hash,next_attempt_at) SELECT %s,d.token_hash,%s FROM mobile_push_devices d JOIN mobile_user_sessions s ON s.token_hash=d.session_hash WHERE d.user_id=%s AND s.user_id=d.user_id AND s.expires_at>%s", (notification_id, now, routine["user_id"], now))
+            cursor.execute("SELECT scheduled_for FROM mobile_notifications WHERE id=%s", (notification_id,))
+            scheduled_for = cursor.fetchone()["scheduled_for"] or now
+            cursor.execute("INSERT IGNORE INTO mobile_notification_deliveries (notification_id,token_hash,next_attempt_at) SELECT %s,d.token_hash,%s FROM mobile_push_devices d JOIN mobile_user_sessions s ON s.token_hash=d.session_hash WHERE d.user_id=%s AND s.user_id=d.user_id AND s.expires_at>%s", (notification_id, max(now, scheduled_for), routine["user_id"], now))
 
 
 def pending_deliveries(now):
-    return execute("SELECT n.id,n.user_id,n.routine_id,n.title,n.body,n.event_at,d.token,d.token_hash,d.session_hash,q.attempts FROM mobile_notification_deliveries q JOIN mobile_notifications n ON n.id=q.notification_id JOIN mobile_push_devices d ON d.token_hash=q.token_hash JOIN mobile_user_sessions s ON s.token_hash=d.session_hash JOIN mobile_routines r ON r.id=n.routine_id JOIN mobile_users u ON u.id=n.user_id WHERE q.state IN ('pending','sending') AND q.attempts<5 AND q.next_attempt_at<=%s AND (q.lease_until IS NULL OR q.lease_until<%s) AND n.state='ready' AND n.user_id=d.user_id AND s.user_id=n.user_id AND s.expires_at>%s AND u.email_verified_at IS NOT NULL AND r.enabled=1 AND n.event_at>%s ORDER BY q.next_attempt_at LIMIT 50", (now, now, now, now-timedelta(minutes=5)), rows=True)
+    return execute("SELECT n.id,n.user_id,n.routine_id,n.title,n.body,n.event_at,n.scheduled_for,d.token,d.token_hash,d.session_hash,q.attempts FROM mobile_notification_deliveries q JOIN mobile_notifications n ON n.id=q.notification_id JOIN mobile_push_devices d ON d.token_hash=q.token_hash JOIN mobile_user_sessions s ON s.token_hash=d.session_hash JOIN mobile_routines r ON r.id=n.routine_id JOIN mobile_users u ON u.id=n.user_id WHERE q.state IN ('pending','sending') AND q.attempts<5 AND q.next_attempt_at<=%s AND (q.lease_until IS NULL OR q.lease_until<%s) AND n.state='ready' AND n.user_id=d.user_id AND s.user_id=n.user_id AND s.expires_at>%s AND u.email_verified_at IS NOT NULL AND r.enabled=1 AND n.event_at>%s ORDER BY q.next_attempt_at LIMIT 50", (now, now, now, now-timedelta(minutes=5)), rows=True)
 
 
 def claim_delivery(row, now):
@@ -214,4 +235,4 @@ def finish_delivery(row, claim, result, now):
         execute("DELETE FROM mobile_push_devices WHERE token_hash=%s AND session_hash=%s AND user_id=%s", (row["token_hash"], row["session_hash"], row["user_id"]))
         return
     state = "sent" if result == "sent" else "failed" if result == "failed" or row["attempts"] >= 4 else "pending"
-    execute("UPDATE mobile_notification_deliveries SET state=%s,lease_until=NULL,next_attempt_at=%s WHERE notification_id=%s AND token_hash=%s AND claim_token=%s", (state, now+timedelta(seconds=min(900, 60*2**row["attempts"])), row["id"], row["token_hash"], claim))
+    execute("UPDATE mobile_notification_deliveries SET state=%s,sent_at=%s,lease_until=NULL,next_attempt_at=%s WHERE notification_id=%s AND token_hash=%s AND claim_token=%s", (state, now if state == "sent" else None, now+timedelta(seconds=min(900, 60*2**row["attempts"])), row["id"], row["token_hash"], claim))

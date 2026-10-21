@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from time import monotonic
 from datetime import datetime, timezone
 
 import config
@@ -112,7 +113,7 @@ def run_monitoring_cycle() -> list[dict]:
 
     results: list[dict] = []
     try:
-        locations = db.get_locations(active_only=True)
+        locations = db.get_locations(active_only=True, include_private=True)
         for location in locations:
             results.append(monitor_location(location))
     except Exception:
@@ -155,6 +156,7 @@ class MonitoringScheduler:
         self._thread: threading.Thread | None = None
         self._push_thread: threading.Thread | None = None
         self._routine_thread: threading.Thread | None = None
+        self._delivery_thread: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
@@ -162,6 +164,7 @@ class MonitoringScheduler:
             (self._thread is not None and self._thread.is_alive())
             or (self._push_thread is not None and self._push_thread.is_alive())
             or (self._routine_thread is not None and self._routine_thread.is_alive())
+            or (self._delivery_thread is not None and self._delivery_thread.is_alive())
         )
 
     def start(self) -> None:
@@ -193,18 +196,32 @@ class MonitoringScheduler:
         if config.ROUTINES_ENABLED:
             self._routine_thread = threading.Thread(target=self._run_routines, name="heatguard-routines", daemon=True)
             self._routine_thread.start()
-            logger.info("Personal routine scheduler started")
+            self._delivery_thread = threading.Thread(target=self._run_routine_deliveries, name="heatguard-routine-delivery", daemon=True)
+            self._delivery_thread.start()
+            logger.info("Personal routine scheduler started (5s preparation checks, 1s delivery checks)")
 
     def _run_routines(self) -> None:
-        from services.routine_jobs import run_due_routines
+        from services.routine_jobs import CHECK_INTERVAL_SECONDS, run_due_routines
         if self._stop_event.wait(3):
             return
         while not self._stop_event.is_set():
+            started = monotonic()
             try:
-                run_due_routines()
+                run_due_routines(deliver=False, parallel=True)
             except Exception as error:
                 logger.warning("Routine scheduler unavailable (%s)", type(error).__name__)
-            if self._stop_event.wait(60):
+            if self._stop_event.wait(max(0, CHECK_INTERVAL_SECONDS-(monotonic()-started))):
+                break
+
+    def _run_routine_deliveries(self) -> None:
+        from services.routine_jobs import DELIVERY_INTERVAL_SECONDS, dispatch_due_notifications
+        while not self._stop_event.is_set():
+            started = monotonic()
+            try:
+                dispatch_due_notifications(parallel=True)
+            except Exception as error:
+                logger.warning("Routine delivery scheduler unavailable (%s)", type(error).__name__)
+            if self._stop_event.wait(max(0, DELIVERY_INTERVAL_SECONDS-(monotonic()-started))):
                 break
 
     def _run(self) -> None:
@@ -238,6 +255,8 @@ class MonitoringScheduler:
             self._push_thread.join(timeout=5)
         if self._routine_thread is not None:
             self._routine_thread.join(timeout=5)
+        if self._delivery_thread is not None:
+            self._delivery_thread.join(timeout=5)
         logger.info("Background monitoring stopped")
 
 

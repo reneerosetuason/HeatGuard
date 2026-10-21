@@ -213,7 +213,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                             const SizedBox(height: 10),
                             Text(
                               controller.pushEnabled
-                                  ? 'Your phone is connected.'
+                                  ? 'Phone notifications are on.'
                                   : 'Your next little heads-up.',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
@@ -252,7 +252,9 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                                 ),
                                 label: Text(
                                   controller.busy
-                                      ? 'Connecting…'
+                                      ? controller.pushEnabled
+                                            ? 'Pausing…'
+                                            : 'Connecting…'
                                       : controller.pushEnabled
                                       ? 'Pause phone notifications'
                                       : 'Enable phone notifications',

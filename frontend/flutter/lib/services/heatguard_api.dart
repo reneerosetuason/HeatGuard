@@ -70,6 +70,7 @@ class HeatGuardApi {
     'POST',
     '/api/mobile/devices/register',
     form: {'token': token, 'platform': 'android'},
+    timeout: const Duration(seconds: 12),
   );
   Future<Map<String, dynamic>> removePushDevice(String baseUrl, String token) =>
       _request(
@@ -77,6 +78,7 @@ class HeatGuardApi {
         'POST',
         '/api/mobile/devices/remove',
         form: {'token': token},
+        timeout: const Duration(seconds: 12),
       );
 
   Future<Map<String, dynamic>> registerAccount(
@@ -304,6 +306,7 @@ class HeatGuardApi {
     Map<String, String>? queryParameters,
     Map<String, String>? form,
     Map<String, String>? headers,
+    Duration? timeout,
   }) async {
     final normalizedBase = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final uri = Uri.parse(
@@ -341,7 +344,7 @@ class HeatGuardApi {
                 headers: requestHeaders,
                 body: form ?? const <String, String>{},
               )
-              .timeout(const Duration(seconds: 45));
+              .timeout(timeout ?? const Duration(seconds: 45));
           break;
         case 'DELETE':
           response = await _client

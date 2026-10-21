@@ -18,8 +18,8 @@ def setup(state, monkeypatch):
     client, database, _ = state
     database.commit()
     database.execute("PRAGMA foreign_keys=ON")
-    database.execute("CREATE TABLE locations (id INTEGER PRIMARY KEY,name TEXT,latitude REAL,longitude REAL,is_active BOOLEAN)")
-    database.execute("INSERT INTO locations VALUES (1,'Quezon City',14.6,121.0,1)")
+    database.execute("INSERT INTO locations (id,name,latitude,longitude,is_active) VALUES (1,'Quezon City',14.6,121.0,1)")
+    database.execute("INSERT INTO locations (id,name,latitude,longitude,is_active) VALUES (2,'Second location',14.6,121.0,1)")
     # Exercise the production migration/queries with only MySQL dialect changes.
     schema = Path("sql/mobile_routines.sql").read_text(encoding="utf-8")
     schema = re.sub(r"^\s*KEY .*\n", "", schema, flags=re.M)
@@ -32,12 +32,14 @@ def setup(state, monkeypatch):
     for user in (1, 2):
         database.execute("INSERT INTO mobile_users VALUES (?,?,?,?,?,?)",
                          (user, f"member{user}@example.com", f"Member {user}", "unused", now, now))
+        database.execute("INSERT INTO mobile_saved_locations VALUES (?,?,?,?)", (user,user,'Quezon City',now))
     database.commit()
     tokens = [accounts.create_session(user)[0] for user in (1, 2)]
     monkeypatch.setattr(routine_api, "write_limiter", security.RateLimiter(100, 60))
     monkeypatch.setattr(routine_api, "preview_limiter", security.RateLimiter(5, 60))
     monkeypatch.setattr(push, "configured", lambda: False)
     monkeypatch.setattr(advice, "_cache", {})
+    monkeypatch.setattr(store, "utcnow", lambda: NOW)
     return client, database, tokens
 
 
@@ -108,7 +110,7 @@ def test_per_user_limit_does_not_block_another_user(setup, monkeypatch):
     monkeypatch.setattr(config, "ROUTINE_LIMIT_PER_USER", 1)
     create(setup)
     assert request(setup, "POST", "routines", data=form()).status_code == 400
-    assert request(setup, "POST", "routines", user=2, data=form()).status_code == 201
+    assert request(setup, "POST", "routines", user=2, data=form(location_id=2)).status_code == 201
 
 
 def test_local_weekday_midnight_lead_and_dst():
@@ -233,7 +235,7 @@ def test_weather_and_ai_failure_fallbacks_are_honest(monkeypatch):
         raise requests.Timeout()
     monkeypatch.setattr(advice, "groq_tip", fail)
     result = advice.build_advice(routine, NOW)
-    assert "45.2" in result["body"] and "Avoid strenuous" in result["body"]
+    assert "45.2" in result["body"] and "Limit time outdoors" in result["body"]
     assert result["ai_generated"] is False
     monkeypatch.setattr(advice, "forecast", fail)
     result = advice.build_advice(routine, NOW)
@@ -279,9 +281,12 @@ def test_groq_is_bounded_and_does_not_receive_identity(monkeypatch, tip, accepte
         sent.append(kwargs["json"])
         return Response({"choices": [{"message": {"content": json.dumps({"tip": tip})}}]})
     monkeypatch.setattr(advice.requests, "post", post)
-    assert bool(advice.groq_tip("Go to school", WEATHER)) is accepted
+    context = advice.activity_context({**form(), "location_name":"Quezon City"}, NOW)
+    assert bool(advice.groq_tip(context, WEATHER)) is accepted
     data = json.loads(sent[0]["messages"][1]["content"])
-    assert set(data) == {"activity_label", "forecast"}
+    assert set(data) == {"routine", "forecast"}
+    assert data["routine"]["activity_label"] == "Go to school"
+    assert data["routine"]["location_name"] == "Quezon City"
 
 
 def test_fcm_payload_has_account_route_and_expiry_without_exposing_credentials(monkeypatch):

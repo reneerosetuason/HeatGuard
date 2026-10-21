@@ -67,15 +67,16 @@ def check_connection() -> bool:
         return False
 
 
-def get_locations(active_only: bool = True) -> list[dict]:
+def get_locations(active_only: bool = True, *, include_private: bool = False) -> list[dict]:
     sql = (
-        "SELECT id, name, latitude, longitude, timezone, is_active "
-        "FROM locations"
+        "SELECT l.id, COALESCE(p.display_name,l.name) AS name, l.latitude, l.longitude, l.timezone, l.is_active "
+        "FROM locations l LEFT JOIN mobile_saved_locations p ON p.location_id=l.id WHERE "
+        + ("(p.location_id IS NULL OR p.user_id IS NOT NULL)" if include_private else "p.location_id IS NULL")
     )
     params: tuple[Any, ...] = ()
     if active_only:
-        sql += " WHERE is_active = 1"
-    sql += " ORDER BY id"
+        sql += " AND l.is_active = 1"
+    sql += " ORDER BY l.id"
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -91,7 +92,7 @@ def get_location(location_id: int) -> dict | None:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, name, latitude, longitude, timezone, is_active "
-                "FROM locations WHERE id = %s",
+                "FROM locations WHERE id = %s AND NOT EXISTS (SELECT 1 FROM mobile_saved_locations p WHERE p.location_id=locations.id)",
                 (location_id,),
             )
             row = cur.fetchone()
@@ -104,7 +105,7 @@ def get_location(location_id: int) -> dict | None:
 def count_active_locations() -> int:
     with connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS total FROM locations WHERE is_active = 1")
+            cur.execute("SELECT COUNT(*) AS total FROM locations WHERE is_active = 1 AND NOT EXISTS (SELECT 1 FROM mobile_saved_locations p WHERE p.location_id=locations.id)")
             row = cur.fetchone()
     return int(row["total"]) if row else 0
 
@@ -166,7 +167,7 @@ def deactivate_location(location_id: int) -> bool:
     with connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE locations SET is_active = 0 WHERE id = %s",
+                "UPDATE locations SET is_active = 0 WHERE id = %s AND NOT EXISTS (SELECT 1 FROM mobile_saved_locations p WHERE p.location_id=locations.id)",
                 (location_id,),
             )
             changed = cur.rowcount

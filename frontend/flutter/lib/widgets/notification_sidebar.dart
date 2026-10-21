@@ -131,7 +131,8 @@ class NotificationSidebar extends StatelessWidget {
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final notice = controller.notices[index];
-                        final received = notice.createdAt.toLocal();
+                        final received =
+                            (notice.scheduledFor ?? notice.createdAt).toLocal();
                         final time = MaterialLocalizations.of(
                           context,
                         ).formatTimeOfDay(TimeOfDay.fromDateTime(received));

@@ -57,6 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _notificationPermission = false;
   bool _dailyReminderEnabled = true;
   bool _canWrite = false;
+  bool _personalLocations = false;
   bool _adminConfigured = false;
   bool _isAdmin = false;
   bool _refreshing = false;
@@ -186,6 +187,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       final locations = await _api.fetchLocations(_apiBaseUrl);
       if (locations.isEmpty) {
+        if (mounted && widget.account != null) {
+          setState(() {
+            _locations = [];
+            _selectedLocationId = null;
+            _dashboard = null;
+            _loading = false;
+            _error = null;
+          });
+          if (_notificationsReady) await _notifications.cancelDaily();
+          return;
+        }
         throw const HeatGuardApiException(
           'No monitoring locations are configured in HeatGuard yet.',
         );
@@ -278,7 +290,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _applyCapabilities(Map<String, dynamic> values) {
-    _canWrite = values['can_write'] == true;
+    if (values.containsKey('can_manage_personal_locations')) {
+      _personalLocations = values['can_manage_personal_locations'] == true;
+    }
+    _canWrite = values['can_write'] == true || _personalLocations;
     _adminConfigured = values['admin_configured'] == true;
     _isAdmin = values['is_admin'] == true;
   }
@@ -445,13 +460,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _selectedLocationId = newLocationId);
     await _preferences.setInt('location_id', newLocationId);
     await _loadDashboard();
+    unawaited(_routines?.reload());
     if (mounted) _showMessage('Location added to HeatGuard monitoring.');
   }
 
   Future<void> _removeCurrentLocation() async {
     await _ensureWriteAccess();
     if (!mounted || !_canWrite || _dashboard == null) return;
-    if (_locations.length <= 1) {
+    if (!_personalLocations && _locations.length <= 1) {
       _showMessage('At least one monitoring location must remain.');
       return;
     }
@@ -462,7 +478,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       builder: (context) => AlertDialog(
         title: const Text('Stop monitoring this location?'),
         content: Text(
-          'HeatGuard will stop monitoring ${location.name}. Its stored history will remain on the server.',
+          _personalLocations
+              ? 'Remove ${location.name} from your addresses? Routines using it will be paused. Your other addresses stay saved.'
+              : 'HeatGuard will stop monitoring ${location.name}. Its stored history will remain on the server.',
         ),
         actions: [
           TextButton(
@@ -482,6 +500,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() => _selectedLocationId = null);
       await _preferences.remove('location_id');
       await _loadDashboard();
+      unawaited(_routines?.reload());
       if (mounted) _showMessage('Stopped monitoring ${location.name}.');
     } catch (error) {
       if (mounted) _showMessage(_apiError(error));
@@ -726,6 +745,40 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             if (_error != null) _connectionErrorCard(_error!),
             if (dashboard == null && _loading) const _LoadingCard(),
+            if (dashboard == null &&
+                !_loading &&
+                _error == null &&
+                widget.account != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.add_home_outlined,
+                        color: HeatGuardColors.teal,
+                        size: 36,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Your places. Your weather.',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Save your home, school, or another address to see the weather. Your address list is private to your account.',
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: _openLocationManager,
+                        icon: const Icon(Icons.add_location_alt_outlined),
+                        label: const Text('Add your first address'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (dashboard != null) ...[
               _locationSelector(dashboard),
               const SizedBox(height: 16),
@@ -977,7 +1030,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(height: 12),
               _DashboardActions(
                 refreshing: _refreshing,
-                canRemove: _locations.length > 1,
+                canRemove: _personalLocations || _locations.length > 1,
                 canWrite: _canWrite,
                 adminConfigured: _adminConfigured,
                 onRefresh: _refreshNow,

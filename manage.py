@@ -98,10 +98,31 @@ def init_mobile_routines() -> int:
                 for statement in migration.split(";"):
                     if statement.strip():
                         cursor.execute(statement)
+                # CREATE TABLE leaves existing installations unchanged. Add the
+                # timing fields once without replacing any routines or history.
+                for table, column in (("mobile_notifications", "scheduled_for"),
+                                      ("mobile_notifications", "prepared_at"),
+                                      ("mobile_notification_deliveries", "sent_at")):
+                    cursor.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s AND COLUMN_NAME=%s", (table, column))
+                    if not cursor.fetchone():
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} DATETIME NULL")
     except (db.DatabaseError, pymysql.MySQLError):
         print("Could not create routine tables. Check MySQL and database permissions.", file=sys.stderr)
         return 1
     print("Personal routine, notification inbox, and push delivery tables are ready.")
+    from services import private_locations
+    migration = (config.BASE_DIR / "sql" / "mobile_locations.sql").read_text(encoding="utf-8")
+    try:
+        with db.connection() as conn:
+            with conn.cursor() as cursor:
+                for statement in migration.split(";"):
+                    if statement.strip():
+                        cursor.execute(statement)
+        private_locations.migrate_routine_locations()
+    except (db.DatabaseError, pymysql.MySQLError, ValueError):
+        print("Could not create private addresses. Check MySQL and database permissions.", file=sys.stderr)
+        return 1
+    print("Private mobile addresses are ready; legacy routine addresses have been preserved.")
     return 0
 
 
@@ -234,6 +255,7 @@ def main() -> int:
     subparsers.add_parser("init-db", help="Create database, tables, and seeds")
     subparsers.add_parser("init-mobile-auth", help="Add verified mobile accounts to an existing database")
     subparsers.add_parser("init-mobile-routines", help="Add personal routines and notification tables")
+    subparsers.add_parser("init-mobile-locations", help="Add private mobile addresses and migrate routine locations")
 
     subparsers.add_parser(
         "monitor-once", help="Fetch and store one reading for every location"
@@ -266,7 +288,7 @@ def main() -> int:
         return init_db()
     if args.command == "init-mobile-auth":
         return init_mobile_auth()
-    if args.command == "init-mobile-routines":
+    if args.command in {"init-mobile-routines", "init-mobile-locations"}:
         return init_mobile_routines()
     if args.command == "monitor-once":
         return monitor_once()

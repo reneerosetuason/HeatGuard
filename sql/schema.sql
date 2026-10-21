@@ -185,6 +185,8 @@ CREATE TABLE IF NOT EXISTS mobile_notifications (
     user_id BIGINT UNSIGNED NOT NULL,
     routine_id BIGINT UNSIGNED NULL,
     event_at DATETIME NOT NULL,
+    scheduled_for DATETIME NULL,
+    prepared_at DATETIME NULL,
     title VARCHAR(120) NOT NULL DEFAULT '',
     body TEXT NOT NULL,
     weather_json JSON NULL,
@@ -218,10 +220,23 @@ CREATE TABLE IF NOT EXISTS mobile_notification_deliveries (
     state VARCHAR(16) NOT NULL DEFAULT 'pending',
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
     next_attempt_at DATETIME NOT NULL,
+    sent_at DATETIME NULL,
     lease_until DATETIME NULL,
     claim_token VARCHAR(64) NULL,
     PRIMARY KEY (notification_id, token_hash),
     KEY idx_delivery_pending (state, next_attempt_at),
     FOREIGN KEY (notification_id) REFERENCES mobile_notifications(id) ON DELETE CASCADE,
     FOREIGN KEY (token_hash) REFERENCES mobile_push_devices(token_hash) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Private addresses for verified mobile accounts.
+-- Apply with: python manage.py init-mobile-locations
+CREATE TABLE IF NOT EXISTS mobile_saved_locations (
+    location_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    user_id BIGINT UNSIGNED NULL,
+    display_name VARCHAR(120) NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uq_saved_location_name (user_id, display_name),
+    FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES mobile_users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
