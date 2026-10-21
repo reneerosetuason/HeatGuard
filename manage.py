@@ -64,6 +64,22 @@ def init_db() -> int:
     return 0
 
 
+def init_mobile_auth() -> int:
+    """Add only the account tables; leave existing locations and readings intact."""
+    migration = (config.BASE_DIR / "sql" / "mobile_accounts.sql").read_text(encoding="utf-8")
+    try:
+        with db.connection() as conn:
+            with conn.cursor() as cursor:
+                for statement in migration.split(";"):
+                    if statement.strip():
+                        cursor.execute(statement)
+    except (db.DatabaseError, pymysql.MySQLError):
+        print("Could not create the mobile account tables. Check MySQL and the database permissions.", file=sys.stderr)
+        return 1
+    print("Mobile account, verification, and session tables are ready.")
+    return 0
+
+
 def monitor_once() -> int:
     from services.monitoring import run_monitoring_cycle
 
@@ -191,6 +207,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="Create database, tables, and seeds")
+    subparsers.add_parser("init-mobile-auth", help="Add verified mobile accounts to an existing database")
 
     subparsers.add_parser(
         "monitor-once", help="Fetch and store one reading for every location"
@@ -221,6 +238,8 @@ def main() -> int:
 
     if args.command == "init-db":
         return init_db()
+    if args.command == "init-mobile-auth":
+        return init_mobile_auth()
     if args.command == "monitor-once":
         return monitor_once()
     if args.command == "backfill":

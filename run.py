@@ -7,7 +7,7 @@ import os
 from app import create_app
 from services.monitoring import start_scheduler
 
-app = create_app(start_monitor=True)
+app = create_app(start_monitor=True, allow_local_web_preview=True)
 start_scheduler()
 
 

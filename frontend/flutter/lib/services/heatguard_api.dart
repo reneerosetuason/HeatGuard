@@ -7,10 +7,22 @@ import '../models/heatguard_models.dart';
 import 'client_factory.dart';
 
 class HeatGuardApi {
-  HeatGuardApi({http.Client? client}) : _client = client ?? createHeatGuardClient();
+  HeatGuardApi({http.Client? client})
+    : _client = client ?? createHeatGuardClient();
 
   final http.Client _client;
-  final Map<String, String> _cookies = {};
+  final Map<String, Map<String, String>> _cookieJars = {};
+  String? _memberToken;
+  String? _memberTokenBase;
+  Future<void> Function()? onAuthenticationRequired;
+
+  void setMemberToken(String baseUrl, String? token) {
+    _memberTokenBase = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    _memberToken = token;
+  }
+
+  static String _dataPath(String path) =>
+      path.replaceFirst('/api/', '/api/mobile/data/');
   String _csrfToken = '';
 
   static String get defaultBaseUrl {
@@ -23,8 +35,77 @@ class HeatGuardApi {
     return 'http://10.0.2.2:5000';
   }
 
+  Future<Map<String, dynamic>> accountSession(String baseUrl) =>
+      _request(baseUrl, 'GET', '/api/mobile/auth/session');
+
+  Future<Map<String, dynamic>> registerAccount(
+    String baseUrl, {
+    required String name,
+    required String email,
+    required String password,
+  }) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/auth/register',
+    form: {
+      'name': name,
+      'email': email,
+      'password': password,
+      'csrf_token': _csrfToken,
+    },
+  );
+
+  Future<Map<String, dynamic>> verifyRegistration(
+    String baseUrl, {
+    required String challengeId,
+    required String code,
+  }) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/auth/verify',
+    form: {
+      'challenge_id': challengeId,
+      'code': code,
+      'device': kIsWeb ? 'web' : 'native',
+      'csrf_token': _csrfToken,
+    },
+  );
+
+  Future<Map<String, dynamic>> resendVerification(
+    String baseUrl,
+    String challengeId,
+  ) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/auth/resend',
+    form: {'challenge_id': challengeId, 'csrf_token': _csrfToken},
+  );
+
+  Future<Map<String, dynamic>> loginAccount(
+    String baseUrl, {
+    required String email,
+    required String password,
+  }) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/auth/login',
+    form: {
+      'email': email,
+      'password': password,
+      'device': kIsWeb ? 'web' : 'native',
+      'csrf_token': _csrfToken,
+    },
+  );
+
+  Future<Map<String, dynamic>> logoutAccount(String baseUrl) => _request(
+    baseUrl,
+    'POST',
+    '/api/mobile/auth/logout',
+    form: {'csrf_token': _csrfToken},
+  );
+
   Future<List<HeatLocation>> fetchLocations(String baseUrl) async {
-    final data = await _request(baseUrl, 'GET', '/api/locations');
+    final data = await _request(baseUrl, 'GET', _dataPath('/api/locations'));
     final rawLocations = data['locations'];
     if (rawLocations is! List) {
       throw const HeatGuardApiException('The server returned no locations.');
@@ -43,7 +124,7 @@ class HeatGuardApi {
     final data = await _request(
       baseUrl,
       'GET',
-      '/api/dashboard',
+      _dataPath('/api/dashboard'),
       queryParameters: {'location': '$locationId', 'hours': '$hours'},
     );
     final dashboard = data['dashboard'];
@@ -89,15 +170,13 @@ class HeatGuardApi {
     return data;
   }
 
-  Future<Map<String, dynamic>> searchLocations(
-    String baseUrl,
-    String query,
-  ) => _request(
-    baseUrl,
-    'GET',
-    '/api/geocode',
-    queryParameters: {'q': query},
-  );
+  Future<Map<String, dynamic>> searchLocations(String baseUrl, String query) =>
+      _request(
+        baseUrl,
+        'GET',
+        _dataPath('/api/geocode'),
+        queryParameters: {'q': query},
+      );
 
   Future<List<AddressOption>> fetchAddressOptions(
     String baseUrl, {
@@ -108,7 +187,7 @@ class HeatGuardApi {
     final data = await _request(
       baseUrl,
       'GET',
-      path,
+      _dataPath(path),
       queryParameters: queryParameters,
     );
     final values = data[key];
@@ -125,7 +204,7 @@ class HeatGuardApi {
   ) => _request(
     baseUrl,
     'POST',
-    '/api/locations',
+    _dataPath('/api/locations'),
     form: {
       'name': location.displayName,
       'latitude': '${location.latitude}',
@@ -144,7 +223,7 @@ class HeatGuardApi {
   }) => _request(
     baseUrl,
     'POST',
-    '/api/locations/address',
+    _dataPath('/api/locations/address'),
     form: {
       'region_code': regionCode,
       'province_code': provinceCode,
@@ -154,15 +233,13 @@ class HeatGuardApi {
     },
   );
 
-  Future<Map<String, dynamic>> deleteLocation(
-    String baseUrl,
-    int locationId,
-  ) => _request(
-    baseUrl,
-    'DELETE',
-    '/api/locations/$locationId',
-    headers: {'X-CSRF-Token': _csrfToken},
-  );
+  Future<Map<String, dynamic>> deleteLocation(String baseUrl, int locationId) =>
+      _request(
+        baseUrl,
+        'DELETE',
+        _dataPath('/api/locations/$locationId'),
+        headers: {'X-CSRF-Token': _csrfToken},
+      );
 
   Future<Map<String, dynamic>> refreshNow(
     String baseUrl, {
@@ -171,7 +248,7 @@ class HeatGuardApi {
   }) => _request(
     baseUrl,
     'POST',
-    '/api/refresh',
+    _dataPath('/api/refresh'),
     form: {
       'location_id': '$locationId',
       'hours': '$hours',
@@ -188,15 +265,22 @@ class HeatGuardApi {
     Map<String, String>? headers,
   }) async {
     final normalizedBase = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-    final uri = Uri.parse('$normalizedBase$path').replace(
-      queryParameters: queryParameters,
-    );
+    final uri = Uri.parse(
+      '$normalizedBase$path',
+    ).replace(queryParameters: queryParameters);
     final requestHeaders = <String, String>{
       'Accept': 'application/json',
       ...?headers,
     };
-    if (!kIsWeb && _cookies.isNotEmpty) {
-      requestHeaders['Cookie'] = _cookies.entries
+    final cookies = _cookieJars[uri.origin] ?? {};
+    if (_memberToken != null && _memberTokenBase == normalizedBase) {
+      requestHeaders['Authorization'] = 'Bearer $_memberToken';
+    }
+    if (method != 'GET' && _csrfToken.isNotEmpty) {
+      requestHeaders['X-CSRF-Token'] = _csrfToken;
+    }
+    if (!kIsWeb && cookies.isNotEmpty) {
+      requestHeaders['Cookie'] = cookies.entries
           .map((entry) => '${entry.key}=${entry.value}')
           .join('; ');
     }
@@ -205,22 +289,32 @@ class HeatGuardApi {
       late http.Response response;
       switch (method) {
         case 'GET':
-          response = await _client.get(uri, headers: requestHeaders);
+          response = await _client
+              .get(uri, headers: requestHeaders)
+              .timeout(const Duration(seconds: 15));
           break;
         case 'POST':
-          response = await _client.post(
-            uri,
-            headers: requestHeaders,
-            body: form ?? const <String, String>{},
-          );
+          response = await _client
+              .post(
+                uri,
+                headers: requestHeaders,
+                body: form ?? const <String, String>{},
+              )
+              .timeout(const Duration(seconds: 45));
           break;
         case 'DELETE':
-          response = await _client.delete(uri, headers: requestHeaders);
+          response = await _client
+              .delete(uri, headers: requestHeaders)
+              .timeout(const Duration(seconds: 15));
           break;
         default:
-          throw ArgumentError.value(method, 'method', 'Unsupported HTTP method');
+          throw ArgumentError.value(
+            method,
+            'method',
+            'Unsupported HTTP method',
+          );
       }
-      _captureCookies(response);
+      _captureCookies(response, uri.origin);
 
       final decoded = jsonDecode(response.body);
       if (decoded is! Map<String, dynamic>) {
@@ -229,11 +323,18 @@ class HeatGuardApi {
           statusCode: response.statusCode,
         );
       }
+      if (decoded['csrf_token'] is String) {
+        _csrfToken = decoded['csrf_token'] as String;
+      }
+      if (decoded['error_code'] == 'authentication_required') {
+        await onAuthenticationRequired?.call();
+      }
       if (response.statusCode < 200 ||
           response.statusCode >= 300 ||
           decoded['ok'] != true) {
         throw HeatGuardApiException(
-          (decoded['error'] ?? decoded['message'] ??
+          (decoded['error'] ??
+                  decoded['message'] ??
                   'HeatGuard could not complete this request.')
               .toString(),
           statusCode: response.statusCode,
@@ -257,13 +358,23 @@ class HeatGuardApi {
     }
   }
 
-  void _captureCookies(http.Response response) {
+  void _captureCookies(http.Response response, String origin) {
+    if (kIsWeb) return;
     final setCookie = response.headers['set-cookie'];
     if (setCookie == null) return;
-    final pair = setCookie.split(';').first.trim();
-    final separator = pair.indexOf('=');
-    if (separator <= 0) return;
-    _cookies[pair.substring(0, separator)] = pair.substring(separator + 1);
+    final jar = _cookieJars.putIfAbsent(origin, () => {});
+    for (final cookie in setCookie.split(RegExp(r',(?=\s*[^;,=\s]+=)'))) {
+      final pair = cookie.split(';').first.trim();
+      final separator = pair.indexOf('=');
+      if (separator <= 0) continue;
+      final name = pair.substring(0, separator);
+      final value = pair.substring(separator + 1);
+      if (value.isEmpty) {
+        jar.remove(name);
+      } else {
+        jar[name] = value;
+      }
+    }
   }
 
   void close() => _client.close();

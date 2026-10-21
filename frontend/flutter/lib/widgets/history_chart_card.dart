@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../models/heatguard_models.dart';
+import '../theme/heatguard_theme.dart';
 
 enum _HistoryMetric { temperature, humidity, heatIndex, risk }
 
@@ -43,46 +44,40 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('History', style: TextStyle(
-                        color: Color(0xFF15251E),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      )),
-                      SizedBox(height: 3),
-                      Text('Stored readings for this location', style: TextStyle(
-                        color: Color(0xFF77867E),
-                        fontSize: 12,
-                      )),
-                    ],
-                  ),
+            const Text(
+              'Conditions over time',
+              style: TextStyle(
+                color: HeatGuardColors.ink,
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'A closer look at your local readings.',
+              style: TextStyle(color: HeatGuardColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<int>(
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                minimumSize: const Size(72, 44),
+                selectedBackgroundColor: HeatGuardColors.teal,
+                selectedForegroundColor: Colors.white,
+                foregroundColor: HeatGuardColors.muted,
+                side: const BorderSide(color: HeatGuardColors.border),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
-                SegmentedButton<int>(
-                  showSelectedIcon: false,
-                  style: ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    textStyle: const WidgetStatePropertyAll(
-                      TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                    padding: const WidgetStatePropertyAll(
-                      EdgeInsets.symmetric(horizontal: 9),
-                    ),
-                  ),
-                  segments: const [
-                    ButtonSegment(value: 24, label: Text('24h')),
-                    ButtonSegment(value: 168, label: Text('7d')),
-                  ],
-                  selected: {widget.hours == 168 ? 168 : 24},
-                  onSelectionChanged: (value) =>
-                      widget.onHoursChanged(value.first),
-                ),
+              ),
+              segments: const [
+                ButtonSegment(value: 24, label: Text('24 hours')),
+                ButtonSegment(value: 168, label: Text('7 days')),
               ],
+              selected: {widget.hours == 168 ? 168 : 24},
+              onSelectionChanged: (value) => widget.onHoursChanged(value.first),
             ),
             const SizedBox(height: 15),
             SingleChildScrollView(
@@ -100,30 +95,37 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
               ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    selected == null
-                        ? 'No readings yet'
-                        : '${_metricName(_metric)}  ${_formatValue(value)}  ·  ${selected.label}',
+            AnimatedSize(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    selected == null ? 'No readings yet' : _formatValue(value),
                     style: const TextStyle(
-                      color: Color(0xFF46574E),
-                      fontSize: 12,
+                      color: HeatGuardColors.ink,
+                      fontSize: 28,
                       fontWeight: FontWeight.w600,
+                      letterSpacing: -0.7,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  '${points.length} readings',
-                  style: const TextStyle(
-                    color: Color(0xFF96A199),
-                    fontSize: 11,
+                  const SizedBox(height: 3),
+                  Text(
+                    selected == null
+                        ? 'Your observations will appear here.'
+                        : '${_metricName(_metric)} / ${selected.label}',
+                    style: const TextStyle(
+                      color: HeatGuardColors.muted,
+                      fontSize: 11,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(height: 12),
             const SizedBox(height: 4),
             if (points.isEmpty)
               Container(
@@ -131,7 +133,7 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
                 alignment: Alignment.center,
                 child: const Text(
                   'No stored readings for this period yet.',
-                  style: TextStyle(color: Color(0xFF77867E), fontSize: 13),
+                  style: TextStyle(color: HeatGuardColors.muted, fontSize: 13),
                 ),
               )
             else
@@ -139,29 +141,39 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
                 height: 190,
                 width: double.infinity,
                 child: LayoutBuilder(
-                  builder: (context, constraints) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapDown: (details) {
-                      if (points.length < 2) return;
-                      const left = 42.0;
-                      const right = 8.0;
-                      final plotWidth = math.max(
-                        1.0,
-                        constraints.maxWidth - left - right,
-                      );
-                      final ratio = ((details.localPosition.dx - left) /
-                              plotWidth)
-                          .clamp(0.0, 1.0);
-                      setState(() {
-                        _selectedIndex = (ratio * (points.length - 1)).round();
-                      });
-                    },
-                    child: CustomPaint(
-                      painter: _HistoryChartPainter(
-                        points: points,
-                        thresholds: widget.thresholds,
-                        metric: _metric,
-                        selectedIndex: selectedIndex,
+                  builder: (context, constraints) => Semantics(
+                    label:
+                        '${_metricName(_metric)} history. ${_formatValue(value)}. ${selected?.label ?? ''}',
+                    hint: 'Swipe up or down to select a reading.',
+                    onIncrease: () =>
+                        _selectIndex((selectedIndex ?? 0) + 1, points.length),
+                    onDecrease: () =>
+                        _selectIndex((selectedIndex ?? 0) - 1, points.length),
+                    child: GestureDetector(
+                      key: const ValueKey('history-plot'),
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (details) => _selectAt(
+                        details.localPosition.dx,
+                        constraints.maxWidth,
+                        points.length,
+                      ),
+                      onHorizontalDragStart: (details) => _selectAt(
+                        details.localPosition.dx,
+                        constraints.maxWidth,
+                        points.length,
+                      ),
+                      onHorizontalDragUpdate: (details) => _selectAt(
+                        details.localPosition.dx,
+                        constraints.maxWidth,
+                        points.length,
+                      ),
+                      child: CustomPaint(
+                        painter: _HistoryChartPainter(
+                          points: points,
+                          thresholds: widget.thresholds,
+                          metric: _metric,
+                          selectedIndex: selectedIndex,
+                        ),
                       ),
                     ),
                   ),
@@ -169,13 +181,24 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
               ),
             const SizedBox(height: 9),
             Text(
+              points.isEmpty
+                  ? 'Waiting for observations'
+                  : 'Drag to explore / ${points.length} readings',
+              style: const TextStyle(
+                color: HeatGuardColors.teal,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
               _metric == _HistoryMetric.heatIndex
                   ? 'Heat index is calculated from weather estimates. Colored lines mark the configured risk bands.'
                   : _metric == _HistoryMetric.risk
                   ? 'Risk levels follow the configured PAGASA heat-index categories.'
                   : 'History contains stored observations; forecast hours are not included.',
               style: const TextStyle(
-                color: Color(0xFF87948C),
+                color: HeatGuardColors.muted,
                 fontSize: 11,
                 height: 1.35,
               ),
@@ -184,6 +207,22 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
         ),
       ),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant HistoryChartCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.history != widget.history) _selectedIndex = null;
+  }
+
+  void _selectIndex(int index, int count) {
+    if (count == 0) return;
+    setState(() => _selectedIndex = index.clamp(0, count - 1));
+  }
+
+  void _selectAt(double x, double width, int count) {
+    final ratio = ((x - 42) / math.max(1, width - 50)).clamp(0.0, 1.0);
+    _selectIndex((ratio * (count - 1)).round(), count);
   }
 
   Widget _metricChip(_HistoryMetric metric, String label) {
@@ -196,18 +235,18 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
         _selectedIndex = null;
       }),
       labelStyle: TextStyle(
-        color: selected ? const Color(0xFF17624A) : const Color(0xFF64736B),
+        color: selected ? HeatGuardColors.teal : HeatGuardColors.muted,
         fontSize: 12,
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
       ),
       side: BorderSide(
-        color: selected ? const Color(0xFFB8D8C6) : const Color(0xFFE5EBE6),
+        color: selected ? HeatGuardColors.teal : HeatGuardColors.border,
       ),
       backgroundColor: Colors.white,
-      selectedColor: const Color(0xFFEAF4ED),
+      selectedColor: HeatGuardColors.mint,
       showCheckmark: false,
       visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
     );
   }
 
@@ -230,9 +269,10 @@ class _HistoryChartCardState extends State<HistoryChartCard> {
     if (_metric == _HistoryMetric.risk) {
       final level = value.round();
       return widget.thresholds
-          .where((threshold) => threshold.level == level)
-          .map((threshold) => threshold.shortLabel)
-          .firstOrNull ?? 'Unknown';
+              .where((threshold) => threshold.level == level)
+              .map((threshold) => threshold.shortLabel)
+              .firstOrNull ??
+          'Unknown';
     }
     return '${value.toStringAsFixed(1)}${_metric == _HistoryMetric.humidity ? '%' : '°C'}';
   }
@@ -285,7 +325,8 @@ class _HistoryChartPainter extends CustomPainter {
     }
 
     double yFor(double value) =>
-        plot.bottom - ((value - minValue) / (maxValue - minValue)) * plot.height;
+        plot.bottom -
+        ((value - minValue) / (maxValue - minValue)) * plot.height;
     double xFor(int index) => points.length == 1
         ? plot.left + plot.width / 2
         : plot.left + index * plot.width / (points.length - 1);
@@ -293,10 +334,7 @@ class _HistoryChartPainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = const Color(0xFFE9EEEA)
       ..strokeWidth = 1;
-    final axisStyle = TextStyle(
-      color: const Color(0xFF85928B),
-      fontSize: 9,
-    );
+    final axisStyle = TextStyle(color: HeatGuardColors.muted, fontSize: 9);
     for (var i = 0; i <= 4; i++) {
       final ratio = i / 4;
       final y = plot.bottom - ratio * plot.height;
@@ -313,10 +351,16 @@ class _HistoryChartPainter extends CustomPainter {
         final value = threshold.minC;
         if (value == null || value <= minValue || value >= maxValue) continue;
         final line = Paint()
-          ..color = _parseColor(threshold.color).withValues(alpha: 0.42)
+          ..color = HeatGuardColors.risk(
+            threshold.label,
+          ).withValues(alpha: 0.35)
           ..strokeWidth = 1;
-        _drawDashedLine(canvas, Offset(plot.left, yFor(value)),
-            Offset(plot.right, yFor(value)), line);
+        _drawDashedLine(
+          canvas,
+          Offset(plot.left, yFor(value)),
+          Offset(plot.right, yFor(value)),
+          line,
+        );
       }
     }
 
@@ -340,6 +384,42 @@ class _HistoryChartPainter extends CustomPainter {
       }
     }
 
+    // Fill each uninterrupted sequence separately so missing data stays visible.
+    if (metric != _HistoryMetric.risk) {
+      var index = 0;
+      while (index < values.length) {
+        if (values[index] == null) {
+          index++;
+          continue;
+        }
+        final first = index;
+        final area = Path()
+          ..moveTo(xFor(index), plot.bottom)
+          ..lineTo(xFor(index), yFor(values[index]!));
+        while (index + 1 < values.length && values[index + 1] != null) {
+          index++;
+          area.lineTo(xFor(index), yFor(values[index]!));
+        }
+        area.lineTo(xFor(index), plot.bottom);
+        area.close();
+        if (index > first) {
+          canvas.drawPath(
+            area,
+            Paint()
+              ..shader = LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _lineColor.withValues(alpha: 0.13),
+                  _lineColor.withValues(alpha: 0.01),
+                ],
+              ).createShader(plot),
+          );
+        }
+        index++;
+      }
+    }
+
     if (metric == _HistoryMetric.heatIndex) {
       for (var i = 1; i < points.length; i++) {
         final before = values[i - 1];
@@ -358,7 +438,7 @@ class _HistoryChartPainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = const Color(0xFF21805B)
+          ..color = _lineColor
           ..strokeWidth = 2.5
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
@@ -369,8 +449,16 @@ class _HistoryChartPainter extends CustomPainter {
     final last = selectedIndex ?? points.length - 1;
     if (last >= 0 && last < values.length && values[last] != null) {
       final marker = Offset(xFor(last), yFor(values[last]!));
-      canvas.drawCircle(marker, 6, Paint()..color = const Color(0xFFEAF4ED));
-      canvas.drawCircle(marker, 3.6, Paint()..color = const Color(0xFF17624A));
+      _drawDashedLine(
+        canvas,
+        Offset(marker.dx, plot.top),
+        Offset(marker.dx, plot.bottom),
+        Paint()
+          ..color = HeatGuardColors.teal.withValues(alpha: 0.3)
+          ..strokeWidth = 1,
+      );
+      canvas.drawCircle(marker, 7, Paint()..color = HeatGuardColors.mint);
+      canvas.drawCircle(marker, 3.6, Paint()..color = HeatGuardColors.teal);
     }
 
     for (final index in <int>{0, points.length ~/ 2, points.length - 1}) {
@@ -408,20 +496,13 @@ class _HistoryChartPainter extends CustomPainter {
         '';
   }
 
-  Color _colorForRisk(String key) {
-    return thresholds
-            .where((threshold) => threshold.key == key)
-            .map((threshold) => _parseColor(threshold.color))
-            .firstOrNull ??
-        const Color(0xFF21805B);
-  }
+  Color get _lineColor => switch (metric) {
+    _HistoryMetric.temperature => const Color(0xFF9C753C),
+    _HistoryMetric.humidity => const Color(0xFF4C7488),
+    _ => HeatGuardColors.teal,
+  };
 
-  Color _parseColor(String value) {
-    final cleaned = value.replaceFirst('#', '');
-    final parsed = int.tryParse(cleaned, radix: 16);
-    if (parsed == null) return const Color(0xFF21805B);
-    return Color(cleaned.length == 6 ? 0xFF000000 | parsed : parsed);
-  }
+  Color _colorForRisk(String key) => HeatGuardColors.risk(key);
 
   void _drawText(
     Canvas canvas,
@@ -449,7 +530,11 @@ class _HistoryChartPainter extends CustomPainter {
     var travelled = 0.0;
     while (travelled < distance) {
       final next = math.min(travelled + dash, distance);
-      canvas.drawLine(start + direction * travelled, start + direction * next, paint);
+      canvas.drawLine(
+        start + direction * travelled,
+        start + direction * next,
+        paint,
+      );
       travelled = next + gap;
     }
   }

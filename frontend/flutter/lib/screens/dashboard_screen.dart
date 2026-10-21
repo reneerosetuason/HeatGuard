@@ -1,17 +1,33 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/heatguard_models.dart';
+import '../models/mobile_account.dart';
 import '../services/daily_notification_service.dart';
 import '../services/heatguard_api.dart';
 import '../widgets/history_chart_card.dart';
+import '../theme/heatguard_theme.dart';
 import 'location_manager_sheet.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({
+    super.key,
+    this.api,
+    this.account,
+    this.onAccountSignOut,
+    this.onServerChanged,
+  });
+
+  final MobileAccount? account;
+  final Future<void> Function()? onAccountSignOut;
+  final Future<void> Function(String)? onServerChanged;
+
+  final HeatGuardApi? api;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -20,7 +36,9 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
-  final HeatGuardApi _api = HeatGuardApi();
+  late final HeatGuardApi _api = widget.api ?? HeatGuardApi();
+  final PageController _pageController = PageController();
+  int _selectedTab = 0;
   final DailyNotificationService _notifications = DailyNotificationService();
 
   List<HeatLocation> _locations = const [];
@@ -37,6 +55,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _adminConfigured = false;
   bool _isAdmin = false;
   bool _refreshing = false;
+  bool _signingOutAccount = false;
   int _reminderHour = 8;
   int _reminderMinute = 0;
   int _historyHours = 24;
@@ -59,8 +78,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    _api.close();
+    if (widget.account != null && _notificationsReady) {
+      unawaited(_notifications.cancelDaily().catchError((Object _) {}));
+    }
+    if (widget.api == null) _api.close();
     super.dispose();
   }
 
@@ -168,6 +191,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _locations = locations;
         _selectedLocationId = dashboard.location.id;
         _dashboard = dashboard;
+        _error = null;
         _loading = false;
       });
       await _preferences.setInt('location_id', dashboard.location.id);
@@ -186,6 +210,17 @@ class _DashboardScreenState extends State<DashboardScreen>
         _loading = false;
       });
     }
+  }
+
+  Future<void> _reconnect() async {
+    try {
+      final capabilities = await _api.fetchMobileConfig(_apiBaseUrl);
+      if (!mounted) return;
+      setState(() => _applyCapabilities(capabilities));
+    } catch (_) {
+      // The dashboard reports connection failures and supports older servers.
+    }
+    if (mounted) await _loadDashboard();
   }
 
   Future<void> _scheduleDailyReminder(HeatDashboard dashboard) async {
@@ -302,6 +337,18 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     } catch (error) {
       if (mounted) _showMessage(_apiError(error));
+    }
+  }
+
+  Future<void> _signOutAccount() async {
+    if (_signingOutAccount || widget.onAccountSignOut == null) return;
+    setState(() => _signingOutAccount = true);
+    try {
+      await widget.onAccountSignOut!();
+    } catch (error) {
+      if (mounted) _showMessage(_apiError(error));
+    } finally {
+      if (mounted) setState(() => _signingOutAccount = false);
     }
   }
 
@@ -460,9 +507,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       return;
     }
 
+    if (widget.onServerChanged != null) {
+      try {
+        await widget.onServerChanged!(value);
+      } catch (error) {
+        if (mounted) _showMessage(_apiError(error));
+      }
+      return;
+    }
     setState(() => _apiBaseUrl = value.replaceFirst(RegExp(r'/+$'), ''));
     await _preferences.setString('api_base_url', _apiBaseUrl);
-    await _loadDashboard();
+    await _reconnect();
   }
 
   Future<void> _toggleDailyReminder(bool enabled) async {
@@ -539,116 +594,325 @@ class _DashboardScreenState extends State<DashboardScreen>
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _navigateTo(int index) {
+    HapticFeedback.selectionClick();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pageController.jumpToPage(index);
+    } else {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dashboard = _dashboard;
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 20,
+        titleSpacing: 22,
         title: Row(
           children: [
             Container(
-              width: 38,
-              height: 38,
+              width: 43,
+              height: 43,
               decoration: BoxDecoration(
-                color: const Color(0xFFE1F0E8),
-                borderRadius: BorderRadius.circular(13),
+                color: HeatGuardColors.teal,
+                borderRadius: BorderRadius.circular(15),
               ),
               child: const Icon(
-                Icons.wb_sunny_rounded,
-                color: Color(0xFF17624A),
-                size: 22,
+                Icons.shield_outlined,
+                color: Colors.white,
+                size: 24,
               ),
             ),
             const SizedBox(width: 11),
-            const Text('HeatGuard'),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'HeatGuard',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (MediaQuery.textScalerOf(context).scale(10) <= 14)
+                    const Text(
+                      'A little awareness. A safer day.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: HeatGuardColors.muted,
+                        fontSize: 10,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Refresh weather now',
-            onPressed: _refreshing ? null : _refreshNow,
-            icon: _refreshing
-                ? const SizedBox.square(
-                    dimension: 19,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Account and server settings',
-            onSelected: (value) {
-              if (value == 'sign_in') _signIn();
-              if (value == 'sign_out') _signOut();
-              if (value == 'server') _editApiAddress();
-            },
-            itemBuilder: (context) => [
-              if (_isAdmin)
-                const PopupMenuItem(
-                  value: 'sign_out',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.logout_rounded),
-                    title: Text('Sign out'),
-                  ),
-                )
-              else if (_adminConfigured)
-                const PopupMenuItem(
-                  value: 'sign_in',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.login_rounded),
-                    title: Text('Administrator sign in'),
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'server',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.tune_rounded),
-                  title: Text('Server settings'),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: IconButton.outlined(
+              tooltip: 'Refresh weather now',
+              style: IconButton.styleFrom(
+                side: const BorderSide(color: HeatGuardColors.border),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
                 ),
               ),
-            ],
+              onPressed: _refreshing || _loading || dashboard == null
+                  ? null
+                  : _refreshNow,
+              icon: _refreshing
+                  ? const SizedBox.square(
+                      dimension: 19,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 22),
+            ),
           ),
-          const SizedBox(width: 8),
         ],
       ),
-      body: RefreshIndicator(
-        color: const Color(0xFF17624A),
-        onRefresh: _loadDashboard,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 32),
-          children: [
-            const Text(
-              'Heat safety, at a glance.',
-              style: TextStyle(
-                color: Color(0xFF15251E),
-                fontSize: 27,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.8,
-              ),
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) => setState(() => _selectedTab = index),
+        children: [
+          _page(0, [
+            const _PageIntro(
+              eyebrow: 'YOUR DAILY CHECK-IN',
+              title: 'Stay a step ahead of the heat.',
+              subtitle: 'Local conditions. A little peace of mind.',
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Local conditions and practical guidance for today.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            if (_error != null)
-              _ErrorCard(message: _error!, onRetry: _loadDashboard),
-            if (dashboard == null && _loading)
-              const _LoadingCard()
-            else if (dashboard != null) ...[
-              _WeatherCard(
-                dashboard: dashboard,
-                locations: _locations,
-                selectedLocationId: _selectedLocationId,
-                onLocationChanged: _changeLocation,
+            if (_error != null) _connectionErrorCard(_error!),
+            if (dashboard == null && _loading) const _LoadingCard(),
+            if (dashboard != null) ...[
+              _locationSelector(dashboard),
+              const SizedBox(height: 16),
+              _WeatherCard(dashboard: dashboard),
+              const SizedBox(height: 14),
+              _ReadingStatus(dashboard: dashboard),
+              const SizedBox(height: 24),
+              _SectionHeading(
+                title: 'Your heat outlook',
+                action: 'View safety',
+                onAction: () => _navigateTo(2),
               ),
               const SizedBox(height: 12),
+              if (dashboard.activeAlert != null)
+                _ActiveAlertCard(alert: dashboard.activeAlert!, compact: true)
+              else if (dashboard.dataStatus == 'ok')
+                const _NoActiveAlertCard()
+              else
+                const _UnavailableCard(),
+              const SizedBox(height: 18),
+              _RecommendationCard(
+                recommendations: dashboard.recommendations,
+                preview: true,
+                onViewAll: () => _navigateTo(2),
+              ),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: _openLocationManager,
+                icon: const Icon(Icons.add_location_alt_outlined, size: 19),
+                label: const Text('Add a monitoring location'),
+              ),
+            ],
+          ]),
+          _page(1, [
+            const _PageIntro(
+              eyebrow: 'THE BIGGER PICTURE',
+              title: 'Follow the patterns.',
+              subtitle: 'Explore how conditions change over time.',
+            ),
+            if (dashboard != null) ...[
+              _locationSelector(dashboard),
+              const SizedBox(height: 16),
+              if (_error != null) _connectionErrorCard(_error!),
+              if (_loading) const LinearProgressIndicator(minHeight: 2),
+              const SizedBox(height: 8),
+              HistoryChartCard(
+                history: dashboard.history,
+                hours: _historyHours,
+                thresholds: dashboard.thresholds,
+                onHoursChanged: _changeHistoryHours,
+              ),
+              const SizedBox(height: 18),
+              _DataDetailsCard(dashboard: dashboard),
+            ] else
+              _dashboardPlaceholder(),
+          ]),
+          _page(2, [
+            const _PageIntro(
+              eyebrow: 'LOOK AFTER YOURSELF',
+              title: 'Small steps. Safer days.',
+              subtitle: 'Your local alerts and practical safety guidance.',
+            ),
+            if (dashboard != null) ...[
+              _locationSelector(dashboard),
+              const SizedBox(height: 16),
               _ReadingStatus(dashboard: dashboard),
+              const SizedBox(height: 16),
+              if (dashboard.activeAlert != null)
+                _ActiveAlertCard(alert: dashboard.activeAlert!)
+              else if (dashboard.dataStatus == 'ok')
+                const _NoActiveAlertCard()
+              else
+                const _UnavailableCard(),
+              const SizedBox(height: 18),
+              _RecommendationCard(recommendations: dashboard.recommendations),
+              const SizedBox(height: 18),
+              _AlertHistoryCard(alerts: dashboard.alerts),
+              if (dashboard.disclaimer.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 20, 4, 0),
+                  child: Text(
+                    dashboard.disclaimer,
+                    style: const TextStyle(
+                      color: HeatGuardColors.muted,
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+            ] else
+              _dashboardPlaceholder(),
+          ]),
+          _page(3, [
+            const _PageIntro(
+              eyebrow: 'MAKE IT YOURS',
+              title: 'A little more personal.',
+              subtitle: 'Your reminders, places, and connection.',
+            ),
+            if (widget.account != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.verified_user_outlined,
+                            color: HeatGuardColors.teal,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.account!.name,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  widget.account!.email,
+                                  style: const TextStyle(
+                                    color: HeatGuardColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                const Text(
+                                  'Email verified',
+                                  style: TextStyle(
+                                    color: HeatGuardColors.teal,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: _signingOutAccount ? null : _signOutAccount,
+                        icon: const Icon(Icons.logout_rounded, size: 18),
+                        label: Text(
+                          _signingOutAccount
+                              ? 'Signing out...'
+                              : 'Sign out of HeatGuard',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
+            _ReminderCard(
+              isWeb: kIsWeb,
+              enabled: _dailyReminderEnabled,
+              permissionGranted: _notificationPermission,
+              reminderTime: TimeOfDay(
+                hour: _reminderHour,
+                minute: _reminderMinute,
+              ),
+              notificationError: _notificationError,
+              dashboardAvailable: dashboard?.dataStatus == 'ok',
+              onChanged: _toggleDailyReminder,
+              onChooseTime: _chooseReminderTime,
+            ),
+            const SizedBox(height: 18),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 8,
+                    ),
+                    leading: const Icon(
+                      Icons.dns_outlined,
+                      color: HeatGuardColors.teal,
+                    ),
+                    title: const Text('HeatGuard server'),
+                    subtitle: Text(
+                      _apiBaseUrl,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _editApiAddress,
+                  ),
+                  if (_isAdmin || _adminConfigured) ...[
+                    const Divider(height: 1, indent: 18, endIndent: 18),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 8,
+                      ),
+                      leading: Icon(
+                        _isAdmin
+                            ? Icons.logout_rounded
+                            : Icons.lock_outline_rounded,
+                        color: HeatGuardColors.teal,
+                      ),
+                      title: Text(
+                        _isAdmin
+                            ? 'Administrator sign out'
+                            : 'Administrator sign in',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: _isAdmin ? _signOut : _signIn,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _SectionHeading(title: 'Monitoring locations'),
+            const SizedBox(height: 12),
+            if (dashboard != null) ...[
+              _locationSelector(dashboard),
               const SizedBox(height: 12),
               _DashboardActions(
                 refreshing: _refreshing,
@@ -660,59 +924,240 @@ class _DashboardScreenState extends State<DashboardScreen>
                 onRemove: _removeCurrentLocation,
                 onSignIn: _signIn,
               ),
-              const SizedBox(height: 20),
-              if (dashboard.activeAlert != null) ...[
-                _ActiveAlertCard(alert: dashboard.activeAlert!),
-                const SizedBox(height: 16),
-              ] else if (dashboard.dataStatus == 'ok') ...[
-                const _NoActiveAlertCard(),
-                const SizedBox(height: 16),
-              ],
-              HistoryChartCard(
-                history: dashboard.history,
-                hours: _historyHours,
-                thresholds: dashboard.thresholds,
-                onHoursChanged: _changeHistoryHours,
+            ] else ...[
+              if (_error != null) _connectionErrorCard(_error!),
+              FilledButton.icon(
+                onPressed: _openLocationManager,
+                icon: const Icon(Icons.add_location_alt_outlined),
+                label: const Text('Add location'),
               ),
-              const SizedBox(height: 16),
-              _RecommendationCard(recommendations: dashboard.recommendations),
-              const SizedBox(height: 16),
-              _AlertHistoryCard(alerts: dashboard.alerts),
-              const SizedBox(height: 16),
-              _DataDetailsCard(dashboard: dashboard),
-              const SizedBox(height: 16),
-              _ReminderCard(
-                isWeb: kIsWeb,
-                enabled: _dailyReminderEnabled,
-                permissionGranted: _notificationPermission,
-                reminderTime: TimeOfDay(
-                  hour: _reminderHour,
-                  minute: _reminderMinute,
-                ),
-                notificationError: _notificationError,
-                dashboardAvailable: dashboard.dataStatus == 'ok',
-                onChanged: _toggleDailyReminder,
-                onChooseTime: _chooseReminderTime,
-              ),
-              if (dashboard.disclaimer.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    dashboard.disclaimer,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF7C8B82),
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
             ],
+            const SizedBox(height: 28),
+            const Center(
+              child: Text(
+                'HEATGUARD  /  MINDFUL MONITORING',
+                style: TextStyle(
+                  color: HeatGuardColors.muted,
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: HeatGuardColors.border)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _selectedTab,
+          onDestinationSelected: _navigateTo,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.wb_sunny_outlined),
+              selectedIcon: Icon(Icons.wb_sunny_rounded),
+              label: 'Today',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.show_chart_rounded),
+              label: 'Trends',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.shield_outlined),
+              selectedIcon: Icon(Icons.shield_rounded),
+              label: 'Safety',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.tune_rounded),
+              label: 'Settings',
+            ),
           ],
         ),
       ),
     );
   }
+
+  Widget _dashboardPlaceholder() => _loading
+      ? const _LoadingCard()
+      : _connectionErrorCard(
+          _error ?? 'Connect to HeatGuard to load this view.',
+        );
+
+  Widget _connectionErrorCard(String message) => _ErrorCard(
+    message: message,
+    serverAddress: _apiBaseUrl,
+    onRetry: _reconnect,
+    onServerSettings: _editApiAddress,
+  );
+
+  Widget _locationSelector(HeatDashboard dashboard) => _LocationSelector(
+    locations: _locations,
+    selectedId: dashboard.location.id,
+    enabled: !_loading,
+    onChanged: _changeLocation,
+  );
+
+  Widget _page(int index, List<Widget> children) => _DashboardPage(
+    child: RefreshIndicator(
+      onRefresh: _loadDashboard,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: ListView(
+            key: PageStorageKey('dashboard-tab-$index'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
+            children: children,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _DashboardPage extends StatefulWidget {
+  const _DashboardPage({required this.child});
+  final Widget child;
+  @override
+  State<_DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<_DashboardPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
+
+class _PageIntro extends StatelessWidget {
+  const _PageIntro({
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+  });
+  final String eyebrow;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          eyebrow,
+          style: const TextStyle(
+            color: HeatGuardColors.teal,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.7,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(title, style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 8),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: HeatGuardColors.muted,
+            fontSize: 13,
+            height: 1.5,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.title, this.action, this.onAction});
+  final String title;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+      ),
+      if (action != null)
+        TextButton(
+          onPressed: onAction,
+          child: Text(
+            action!,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ),
+    ],
+  );
+}
+
+class _LocationSelector extends StatelessWidget {
+  const _LocationSelector({
+    required this.locations,
+    required this.selectedId,
+    required this.enabled,
+    required this.onChanged,
+  });
+  final List<HeatLocation> locations;
+  final int selectedId;
+  final bool enabled;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<int>(
+    initialValue: locations.any((item) => item.id == selectedId)
+        ? selectedId
+        : null,
+    key: ValueKey(selectedId),
+    isExpanded: true,
+    icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
+    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+      color: HeatGuardColors.ink,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    ),
+    decoration: const InputDecoration(
+      labelText: 'MONITORING LOCATION',
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      prefixIcon: Icon(
+        Icons.location_on_outlined,
+        color: HeatGuardColors.teal,
+        size: 20,
+      ),
+    ),
+    items: locations
+        .map(
+          (location) => DropdownMenuItem(
+            value: location.id,
+            child: Text(location.name, overflow: TextOverflow.ellipsis),
+          ),
+        )
+        .toList(),
+    onChanged: enabled ? onChanged : null,
+  );
+}
+
+class _UnavailableCard extends StatelessWidget {
+  const _UnavailableCard();
+  @override
+  Widget build(BuildContext context) => const Card(
+    child: Padding(
+      padding: EdgeInsets.all(18),
+      child: Text(
+        'Current heat risk is unknown. Check local advisories while weather data is unavailable.',
+        style: TextStyle(color: HeatGuardColors.muted, height: 1.5),
+      ),
+    ),
+  );
 }
 
 class _DashboardActions extends StatelessWidget {
@@ -775,7 +1220,9 @@ class _DashboardActions extends StatelessWidget {
 }
 
 class _ActiveAlertCard extends StatelessWidget {
-  const _ActiveAlertCard({required this.alert});
+  const _ActiveAlertCard({required this.alert, this.compact = false});
+
+  final bool compact;
 
   final HeatAlert alert;
 
@@ -801,18 +1248,20 @@ class _ActiveAlertCard extends StatelessWidget {
                   child: Text(
                     'Active heat alert',
                     style: TextStyle(
-                      color: Color(0xFF15251E),
+                      color: HeatGuardColors.ink,
                       fontWeight: FontWeight.w700,
                       fontSize: 16,
                     ),
                   ),
                 ),
-                Text(
-                  alert.riskLabel,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                Flexible(
+                  child: Text(
+                    alert.riskLabel,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -834,9 +1283,12 @@ class _ActiveAlertCard extends StatelessWidget {
                 if (alert.heatIndexC != null)
                   'Heat index ${alert.heatIndexC!.toStringAsFixed(1)}°C',
               ].join('  ·  '),
-              style: const TextStyle(color: Color(0xFF77867E), fontSize: 11),
+              style: const TextStyle(
+                color: HeatGuardColors.muted,
+                fontSize: 11,
+              ),
             ),
-            if (alert.recommendations.isNotEmpty) ...[
+            if (!compact && alert.recommendations.isNotEmpty) ...[
               const Divider(height: 22, color: Color(0xFFE9E4DB)),
               for (var i = 0; i < alert.recommendations.length; i++) ...[
                 if (i > 0) const SizedBox(height: 7),
@@ -871,12 +1323,12 @@ class _NoActiveAlertCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-    color: const Color(0xFFEAF4ED),
+    color: HeatGuardColors.mint,
     child: const Padding(
       padding: EdgeInsets.symmetric(horizontal: 15, vertical: 13),
       child: Row(
         children: [
-          Icon(Icons.shield_outlined, color: Color(0xFF17624A), size: 20),
+          Icon(Icons.shield_outlined, color: HeatGuardColors.teal, size: 20),
           SizedBox(width: 9),
           Expanded(
             child: Text(
@@ -913,7 +1365,7 @@ class _AlertHistoryCard extends StatelessWidget {
                   child: Text(
                     'Recent heat alerts',
                     style: TextStyle(
-                      color: Color(0xFF15251E),
+                      color: HeatGuardColors.ink,
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                     ),
@@ -944,12 +1396,13 @@ class _AlertHistoryCard extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 18),
                 child: Text(
                   'No heat alerts have been recorded for this location yet.',
-                  style: TextStyle(color: Color(0xFF77867E), fontSize: 13),
+                  style: TextStyle(color: HeatGuardColors.muted, fontSize: 13),
                 ),
               )
             else
               for (var i = 0; i < alerts.length; i++) ...[
-                if (i > 0) const Divider(height: 18, color: Color(0xFFEEF1EE)),
+                if (i > 0)
+                  const Divider(height: 18, color: HeatGuardColors.border),
                 _AlertHistoryRow(alert: alerts[i]),
               ],
           ],
@@ -1059,7 +1512,7 @@ class _DataDetailsCard extends StatelessWidget {
             const Text(
               'Data details',
               style: TextStyle(
-                color: Color(0xFF15251E),
+                color: HeatGuardColors.ink,
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
               ),
@@ -1099,7 +1552,7 @@ class _DataDetailsCard extends StatelessWidget {
                 ),
               ),
             if (dashboard.lastError != null) ...[
-              const Divider(height: 20, color: Color(0xFFEEF1EE)),
+              const Divider(height: 20, color: HeatGuardColors.border),
               Text(
                 'Last update issue: ${dashboard.lastError!['message'] ?? 'Weather update failed.'}',
                 style: const TextStyle(
@@ -1114,18 +1567,18 @@ class _DataDetailsCard extends StatelessWidget {
                   child: Text(
                     'At ${dashboard.lastError!['at_display']}',
                     style: const TextStyle(
-                      color: Color(0xFF89958E),
+                      color: HeatGuardColors.muted,
                       fontSize: 11,
                     ),
                   ),
                 ),
             ],
             if (dashboard.riskSourceUrl?.isNotEmpty == true) ...[
-              const Divider(height: 20, color: Color(0xFFEEF1EE)),
+              const Divider(height: 20, color: HeatGuardColors.border),
               const Text(
                 'Heat index categories follow PAGASA guidance. Heat index is calculated from weather API estimates.',
                 style: TextStyle(
-                  color: Color(0xFF77867E),
+                  color: HeatGuardColors.muted,
                   fontSize: 11,
                   height: 1.35,
                 ),
@@ -1134,7 +1587,7 @@ class _DataDetailsCard extends StatelessWidget {
               SelectableText(
                 dashboard.riskSourceUrl!,
                 style: const TextStyle(
-                  color: Color(0xFF17624A),
+                  color: HeatGuardColors.teal,
                   fontSize: 11,
                   decoration: TextDecoration.underline,
                 ),
@@ -1170,7 +1623,7 @@ class _DetailLine extends StatelessWidget {
           width: 135,
           child: Text(
             label,
-            style: const TextStyle(color: Color(0xFF77867E), fontSize: 11),
+            style: const TextStyle(color: HeatGuardColors.muted, fontSize: 11),
           ),
         ),
         Expanded(
@@ -1189,191 +1642,294 @@ class _DetailLine extends StatelessWidget {
 }
 
 class _WeatherCard extends StatelessWidget {
-  const _WeatherCard({
-    required this.dashboard,
-    required this.locations,
-    required this.selectedLocationId,
-    required this.onLocationChanged,
-  });
-
+  const _WeatherCard({required this.dashboard});
   final HeatDashboard dashboard;
-  final List<HeatLocation> locations;
-  final int? selectedLocationId;
-  final ValueChanged<int?> onLocationChanged;
 
   @override
   Widget build(BuildContext context) {
-    final riskColor = _riskColor(dashboard.riskLabel);
-    final heatIndex = dashboard.heatIndexC;
-    final temperature = dashboard.temperatureC;
-    final humidity = dashboard.humidityPct;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(21, 18, 21, 21),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1F7657), Color(0xFF104A3A)],
-        ),
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x24104A3A),
-            blurRadius: 22,
-            offset: Offset(0, 12),
+    final current =
+        dashboard.dataStatus == 'ok' && dashboard.current?['is_stale'] != true;
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: HeatGuardColors.deepTeal,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: HeatGuardColors.deepTeal.withValues(alpha: 0.12),
+                blurRadius: 22,
+                offset: const Offset(0, 9),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+          child: Stack(
             children: [
-              const Icon(Icons.place_rounded, size: 17, color: Colors.white70),
-              const SizedBox(width: 5),
-              Expanded(
-                child: locations.isEmpty
-                    ? Text(
-                        dashboard.location.name,
-                        style: const TextStyle(color: Colors.white),
-                        overflow: TextOverflow.ellipsis,
-                      )
-                    : DropdownButton<int>(
-                        value:
-                            locations.any(
-                              (item) => item.id == selectedLocationId,
-                            )
-                            ? selectedLocationId
-                            : dashboard.location.id,
-                        isExpanded: true,
-                        underline: const SizedBox.shrink(),
-                        iconEnabledColor: Colors.white70,
-                        dropdownColor: const Color(0xFF17624A),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                        items: locations
-                            .map(
-                              (location) => DropdownMenuItem<int>(
-                                value: location.id,
-                                child: Text(
-                                  location.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: onLocationChanged,
+              const Positioned(
+                right: -30,
+                top: 2,
+                bottom: 0,
+                child: ExcludeSemantics(
+                  child: SizedBox(
+                    width: 180,
+                    child: CustomPaint(painter: _HeatIllustrationPainter()),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      current
+                          ? 'Feels like outside'
+                          : 'Last recorded heat index',
+                      style: const TextStyle(
+                        color: Color(0xFFCEE1D9),
+                        fontSize: 13,
                       ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: riskColor.withValues(alpha: 0.17),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: riskColor.withValues(alpha: 0.5)),
-                ),
-                child: Text(
-                  dashboard.riskLabel,
-                  style: TextStyle(
-                    color: _riskTextColor(dashboard.riskLabel),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                    ),
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 42),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(end: dashboard.heatIndexC ?? 0),
+                          duration: MediaQuery.disableAnimationsOf(context)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 650),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, _) => Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: dashboard.heatIndexC == null
+                                      ? '\u2014'
+                                      : value.toStringAsFixed(1),
+                                  style: const TextStyle(
+                                    fontSize: 68,
+                                    height: 1.12,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: -3,
+                                  ),
+                                ),
+                                const TextSpan(
+                                  text: '\u00b0C',
+                                  style: TextStyle(
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w400,
+                                    letterSpacing: -1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: HeatGuardColors.sand,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            current
+                                ? Icons.shield_outlined
+                                : Icons.info_outline_rounded,
+                            size: 15,
+                            color: current
+                                ? _riskColor(dashboard.riskLabel)
+                                : HeatGuardColors.muted,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              current
+                                  ? dashboard.riskLabel
+                                  : 'Current risk unknown',
+                              style: TextStyle(
+                                color: current
+                                    ? _riskColor(dashboard.riskLabel)
+                                    : HeatGuardColors.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 17),
+                    const Text(
+                      'Calculated heat index / API estimate',
+                      style: TextStyle(
+                        color: Color(0xFFCEE1D9),
+                        fontSize: 10,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 23),
-          const Text(
-            'HEAT INDEX',
-            style: TextStyle(
-              color: Color(0xFFB8D5C5),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.4,
-            ),
-          ),
-          const SizedBox(height: 1),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(
-                heatIndex == null ? '—' : '${heatIndex.toStringAsFixed(1)}°',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 55,
-                  height: 1.05,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -2,
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 9, left: 4),
-                child: Text(
-                  'C',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              const Icon(
-                Icons.wb_sunny_rounded,
-                color: Color(0xFFFFD27A),
-                size: 42,
-              ),
-            ],
-          ),
-          const SizedBox(height: 13),
-          Wrap(
-            spacing: 16,
-            runSpacing: 8,
-            children: [
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final metrics = [
               _WeatherMetric(
                 icon: Icons.thermostat_rounded,
-                label: 'Air ${_temperature(temperature)}',
+                title: 'Air temperature',
+                value: _temperature(dashboard.temperatureC),
+                tint: HeatGuardColors.sand,
+                iconColor: const Color(0xFF937037),
               ),
               _WeatherMetric(
                 icon: Icons.water_drop_outlined,
-                label:
-                    'Humidity ${humidity == null ? '—' : '${humidity.toStringAsFixed(0)}%'}',
+                title: 'Humidity',
+                value: dashboard.humidityPct == null
+                    ? '\u2014'
+                    : '${dashboard.humidityPct!.toStringAsFixed(0)}%',
+                tint: const Color(0xFFEAF0F4),
+                iconColor: const Color(0xFF4C7488),
               ),
-            ],
-          ),
-        ],
-      ),
+            ];
+            if (MediaQuery.textScalerOf(context).scale(14) > 20) {
+              return Column(
+                children: [metrics[0], const SizedBox(height: 10), metrics[1]],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: metrics[0]),
+                const SizedBox(width: 12),
+                Expanded(child: metrics[1]),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 }
 
-class _WeatherMetric extends StatelessWidget {
-  const _WeatherMetric({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
+class _HeatIllustrationPainter extends CustomPainter {
+  const _HeatIllustrationPainter();
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: const Color(0xFFC2D8CC)),
-        const SizedBox(width: 5),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
-      ],
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.66, size.height * 0.43);
+    final orbit = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = const Color(0xFFB9D4C4).withValues(alpha: 0.12);
+    for (final radius in [68.0, 94.0, 121.0]) {
+      canvas.drawCircle(center, radius, orbit);
+    }
+    final sun = Paint()
+      ..color = HeatGuardColors.gold
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, 24, sun);
+    for (var i = 0; i < 12; i++) {
+      final angle = i * math.pi / 6;
+      final direction = Offset(math.cos(angle), math.sin(angle));
+      canvas.drawLine(center + direction * 33, center + direction * 40, sun);
+    }
+    canvas.drawCircle(
+      center + const Offset(-60, 60),
+      3,
+      Paint()..color = HeatGuardColors.gold.withValues(alpha: 0.7),
+    );
+    canvas.drawCircle(
+      center + const Offset(-30, -90),
+      2,
+      Paint()..color = const Color(0xFFB9D4C4),
     );
   }
+
+  @override
+  bool shouldRepaint(covariant _HeatIllustrationPainter oldDelegate) => false;
+}
+
+class _WeatherMetric extends StatelessWidget {
+  const _WeatherMetric({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.tint,
+    required this.iconColor,
+  });
+  final IconData icon;
+  final String title;
+  final String value;
+  final Color tint;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(21),
+      border: Border.all(color: HeatGuardColors.border),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: tint,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: iconColor),
+            ),
+            const Spacer(),
+            const Icon(
+              Icons.sensors_rounded,
+              size: 14,
+              color: HeatGuardColors.muted,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          value,
+          style: const TextStyle(
+            color: HeatGuardColors.ink,
+            fontSize: 25,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.7,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          title,
+          style: const TextStyle(color: HeatGuardColors.muted, fontSize: 11),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ReadingStatus extends StatelessWidget {
@@ -1384,7 +1940,7 @@ class _ReadingStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = dashboard.dataStatus == 'ok';
-    final color = current ? const Color(0xFF17624A) : const Color(0xFF9A5A18);
+    final color = current ? HeatGuardColors.teal : const Color(0xFF9A5A18);
     final background = current
         ? const Color(0xFFE5F2EA)
         : const Color(0xFFFFF1D9);
@@ -1425,70 +1981,99 @@ class _ReadingStatus extends StatelessWidget {
 }
 
 class _RecommendationCard extends StatelessWidget {
-  const _RecommendationCard({required this.recommendations});
-
+  const _RecommendationCard({
+    required this.recommendations,
+    this.preview = false,
+    this.onViewAll,
+  });
   final List<String> recommendations;
+  final bool preview;
+  final VoidCallback? onViewAll;
 
   @override
   Widget build(BuildContext context) {
     final tips = recommendations.isEmpty
         ? const ['Refresh HeatGuard to get the latest safety guidance.']
         : recommendations;
+    final visible = preview ? tips.take(1).toList() : tips;
     return Card(
+      color: preview ? const Color(0xFFF1F3E9) : Colors.white,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE9F2EC),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.volunteer_activism_rounded,
-                    color: Color(0xFF17624A),
-                    size: 20,
-                  ),
+                const Icon(
+                  Icons.spa_outlined,
+                  size: 20,
+                  color: HeatGuardColors.teal,
                 ),
-                const SizedBox(width: 11),
-                Text(
-                  'Today’s recommendations',
-                  style: Theme.of(context).textTheme.titleMedium,
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    preview
+                        ? 'A little care goes a long way'
+                        : 'Your safety guide',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 15),
-            for (var index = 0; index < tips.length; index++) ...[
-              if (index > 0)
-                const Divider(height: 18, color: Color(0xFFEEF1EE)),
+            const SizedBox(height: 16),
+            for (var i = 0; i < visible.length; i++) ...[
+              if (i > 0) const Divider(height: 28),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Icon(
-                      Icons.circle,
-                      size: 7,
-                      color: Color(0xFF3D9973),
+                  if (!preview) ...[
+                    Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: HeatGuardColors.mint,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Text(
+                        '${i + 1}'.padLeft(2, '0'),
+                        style: const TextStyle(
+                          color: HeatGuardColors.teal,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 11),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(
                     child: Text(
-                      tips[index],
+                      visible[i],
                       style: const TextStyle(
-                        color: Color(0xFF45564D),
-                        fontSize: 14,
-                        height: 1.4,
+                        color: HeatGuardColors.ink,
+                        fontSize: 13,
+                        height: 1.6,
                       ),
                     ),
                   ),
                 ],
+              ),
+            ],
+            if (preview) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: onViewAll,
+                iconAlignment: IconAlignment.end,
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.centerLeft,
+                ),
+                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                label: const Text(
+                  'Explore your safety guide',
+                  style: TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ],
@@ -1566,7 +2151,7 @@ class _ReminderCard extends StatelessWidget {
                       Text(
                         'Weather + a safety recommendation',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF77867E),
+                          color: HeatGuardColors.muted,
                         ),
                       ),
                     ],
@@ -1579,7 +2164,7 @@ class _ReminderCard extends StatelessWidget {
               ],
             ),
             if (enabled) ...[
-              const Divider(height: 21, color: Color(0xFFEEF1EE)),
+              const Divider(height: 21, color: HeatGuardColors.border),
               Row(
                 children: [
                   const Icon(
@@ -1613,7 +2198,7 @@ class _ReminderCard extends StatelessWidget {
                   message,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: notificationError == null
-                        ? const Color(0xFF77867E)
+                        ? HeatGuardColors.muted
                         : const Color(0xFF9A5A18),
                     height: 1.35,
                   ),
@@ -1628,7 +2213,7 @@ class _ReminderCard extends StatelessWidget {
                   child: Text(
                     'The scheduled message uses the latest reading saved by the app.',
                     style: TextStyle(
-                      color: Color(0xFF96A199),
+                      color: HeatGuardColors.muted,
                       fontSize: 11,
                       height: 1.3,
                     ),
@@ -1643,10 +2228,17 @@ class _ReminderCard extends StatelessWidget {
 }
 
 class _ErrorCard extends StatelessWidget {
-  const _ErrorCard({required this.message, required this.onRetry});
+  const _ErrorCard({
+    required this.message,
+    required this.serverAddress,
+    required this.onRetry,
+    required this.onServerSettings,
+  });
 
   final String message;
+  final String serverAddress;
   final VoidCallback onRetry;
+  final VoidCallback onServerSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -1668,14 +2260,36 @@ class _ErrorCard extends StatelessWidget {
                     style: const TextStyle(color: Color(0xFF75450F)),
                   ),
                   const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh_rounded, size: 17),
-                    label: const Text('Try again'),
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      foregroundColor: const Color(0xFF75450F),
+                  SelectableText(
+                    'Server: $serverAddress',
+                    style: const TextStyle(
+                      color: Color(0xFF75450F),
+                      fontSize: 12,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 16,
+                    children: [
+                      TextButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_rounded, size: 17),
+                        label: const Text('Try again'),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          foregroundColor: const Color(0xFF75450F),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: onServerSettings,
+                        icon: const Icon(Icons.tune_rounded, size: 17),
+                        label: const Text('Server settings'),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          foregroundColor: const Color(0xFF75450F),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1697,7 +2311,7 @@ class _LoadingCard extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: 20, vertical: 46),
         child: Column(
           children: [
-            CircularProgressIndicator(color: Color(0xFF17624A)),
+            CircularProgressIndicator(color: HeatGuardColors.teal),
             SizedBox(height: 16),
             Text('Loading local heat conditions…'),
           ],
@@ -1710,33 +2324,4 @@ class _LoadingCard extends StatelessWidget {
 String _temperature(double? value) =>
     value == null ? '—' : '${value.toStringAsFixed(1)}°C';
 
-Color _riskColor(String risk) {
-  final label = risk.toLowerCase();
-  if (label.contains('extreme danger')) {
-    return const Color(0xFFF09BAD);
-  }
-  if (label.contains('danger')) return const Color(0xFFFF9585);
-  if (label.contains('extreme caution') || label.contains('very high')) {
-    return const Color(0xFFFFB27F);
-  }
-  if (label.contains('caution') || label.contains('moderate')) {
-    return const Color(0xFFFFD27A);
-  }
-  if (label.contains('low')) return const Color(0xFF90D4AA);
-  return const Color(0xFFC8DAD0);
-}
-
-Color _riskTextColor(String risk) {
-  final label = risk.toLowerCase();
-  if (label.contains('extreme danger') || label.contains('danger')) {
-    return const Color(0xFFFFE2DC);
-  }
-  if (label.contains('extreme caution') || label.contains('very high')) {
-    return const Color(0xFFFFE0C5);
-  }
-  if (label.contains('caution') || label.contains('moderate')) {
-    return const Color(0xFFFFE9BD);
-  }
-  if (label.contains('low')) return const Color(0xFFD7F4DF);
-  return Colors.white;
-}
+Color _riskColor(String risk) => HeatGuardColors.risk(risk);

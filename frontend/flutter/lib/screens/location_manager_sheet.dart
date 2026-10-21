@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/heatguard_models.dart';
 import '../services/heatguard_api.dart';
+import '../theme/heatguard_theme.dart';
 
 class LocationManagerSheet extends StatefulWidget {
   const LocationManagerSheet({
@@ -126,10 +127,7 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
       _searchComplete = false;
     });
     try {
-      final data = await widget.api.searchLocations(
-        widget.baseUrl,
-        query,
-      );
+      final data = await widget.api.searchLocations(widget.baseUrl, query);
       final raw = data['results'];
       if (!mounted) return;
       setState(() {
@@ -154,15 +152,14 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
       _error = null;
     });
     try {
-      final response = await widget.api.createLocation(
-        widget.baseUrl,
-        result,
-      );
+      final response = await widget.api.createLocation(widget.baseUrl, result);
       final location = response['location'];
       final id = location is Map<String, dynamic>
           ? int.tryParse(location['id'].toString())
           : null;
-      if (id == null) throw const FormatException('The location was not created.');
+      if (id == null) {
+        throw const FormatException('The location was not created.');
+      }
       if (mounted) Navigator.of(context).pop(id);
     } catch (error) {
       if (mounted) setState(() => _error = _message(error));
@@ -176,7 +173,10 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
     final province = _provinceCode;
     final city = _cityCode;
     final barangay = _barangayCode;
-    if (region == null || province == null || city == null || barangay == null) {
+    if (region == null ||
+        province == null ||
+        city == null ||
+        barangay == null) {
       setState(() => _error = 'Choose a region, province, city, and barangay.');
       return;
     }
@@ -221,6 +221,15 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
             length: 2,
             child: Column(
               children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: HeatGuardColors.border,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 17, 12, 10),
                   child: Row(
@@ -232,16 +241,16 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
                             Text(
                               'Add a monitoring location',
                               style: TextStyle(
-                                color: Color(0xFF15251E),
+                                color: HeatGuardColors.ink,
                                 fontSize: 19,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             SizedBox(height: 3),
                             Text(
-                              'Find a place or browse a Philippine address.',
+                              'Find your place. We will keep an eye on the heat.',
                               style: TextStyle(
-                                color: Color(0xFF77867E),
+                                color: HeatGuardColors.muted,
                                 fontSize: 12,
                               ),
                             ),
@@ -257,9 +266,12 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
                   ),
                 ),
                 const TabBar(
-                  labelColor: Color(0xFF17624A),
+                  labelColor: HeatGuardColors.teal,
                   tabs: [
-                    Tab(icon: Icon(Icons.search_rounded), text: 'Search by name'),
+                    Tab(
+                      icon: Icon(Icons.search_rounded),
+                      text: 'Search by name',
+                    ),
                     Tab(icon: Icon(Icons.map_outlined), text: 'Browse address'),
                   ],
                 ),
@@ -273,8 +285,11 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
                         padding: const EdgeInsets.all(11),
                         child: Row(
                           children: [
-                            const Icon(Icons.info_outline_rounded,
-                                color: Color(0xFF9A5A18), size: 18),
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              color: Color(0xFF9A5A18),
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -291,9 +306,7 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
                     ),
                   ),
                 Expanded(
-                  child: TabBarView(
-                    children: [_searchTab(), _addressTab()],
-                  ),
+                  child: TabBarView(children: [_searchTab(), _addressTab()]),
                 ),
               ],
             ),
@@ -331,7 +344,7 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
         if (_busy) ...[
           const SizedBox(height: 18),
           const Center(
-            child: CircularProgressIndicator(color: Color(0xFF17624A)),
+            child: CircularProgressIndicator(color: HeatGuardColors.teal),
           ),
         ],
         if (_searchComplete && !_busy && _results.isEmpty)
@@ -340,7 +353,7 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
             child: Text(
               'No matching places found. Try another spelling.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF77867E)),
+              style: TextStyle(color: HeatGuardColors.muted),
             ),
           ),
         for (final result in _results)
@@ -348,9 +361,11 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
             margin: const EdgeInsets.only(top: 10),
             child: ListTile(
               leading: const CircleAvatar(
-                backgroundColor: Color(0xFFE9F2EC),
-                child: Icon(Icons.location_on_outlined,
-                    color: Color(0xFF17624A)),
+                backgroundColor: HeatGuardColors.mint,
+                child: Icon(
+                  Icons.location_on_outlined,
+                  color: HeatGuardColors.teal,
+                ),
               ),
               title: Text(result.name),
               subtitle: Text(
@@ -362,8 +377,10 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
               trailing: IconButton(
                 tooltip: 'Add ${result.name}',
                 onPressed: _busy ? null : () => _addSearchResult(result),
-                icon: const Icon(Icons.add_circle_outline_rounded,
-                    color: Color(0xFF17624A)),
+                icon: const Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: HeatGuardColors.teal,
+                ),
               ),
               onTap: _busy ? null : () => _addSearchResult(result),
             ),
@@ -449,7 +466,8 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
         ),
         const SizedBox(height: 20),
         FilledButton.icon(
-          onPressed: _busy ||
+          onPressed:
+              _busy ||
                   _regionCode == null ||
                   _provinceCode == null ||
                   _cityCode == null ||
@@ -476,9 +494,12 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
     required ValueChanged<String?> onChanged,
     bool loading = false,
   }) {
-    final currentValue = options.any((item) => item.code == value) ? value : null;
+    final currentValue = options.any((item) => item.code == value)
+        ? value
+        : null;
     return DropdownButtonFormField<String>(
-      value: currentValue,
+      initialValue: currentValue,
+      key: ValueKey('$label-$currentValue'),
       isExpanded: true,
       decoration: InputDecoration(
         labelText: label,
@@ -494,10 +515,12 @@ class _LocationManagerSheetState extends State<LocationManagerSheet> {
       ),
       hint: Text(placeholder, overflow: TextOverflow.ellipsis),
       items: options
-          .map((item) => DropdownMenuItem<String>(
-                value: item.code,
-                child: Text(item.name, overflow: TextOverflow.ellipsis),
-              ))
+          .map(
+            (item) => DropdownMenuItem<String>(
+              value: item.code,
+              child: Text(item.name, overflow: TextOverflow.ellipsis),
+            ),
+          )
           .toList(),
       onChanged: _busy || loading || options.isEmpty ? null : onChanged,
     );

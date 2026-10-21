@@ -31,6 +31,7 @@ from services import db
 from services import geocoding as geocoding_service
 from services import push_notifications as push_service
 from services import security
+from services import mobile_auth
 from services.monitoring import (
     cooldown_remaining,
     get_scheduler,
@@ -39,6 +40,9 @@ from services.monitoring import (
 )
 
 logger = logging.getLogger(__name__)
+
+WEB_FRONTEND_DIR = config.BASE_DIR / "frontend" / "web"
+MOBILE_WEB_APP_DIR = WEB_FRONTEND_DIR / "mobile_app"
 
 
 def _create_location_and_payload(
@@ -134,12 +138,38 @@ def _configure_logging(app: Flask) -> None:
     app.logger.setLevel(level)
 
 
-def create_app(start_monitor: bool = False) -> Flask:
-    app = Flask(__name__)
+def _is_local_preview_origin(origin: str) -> bool:
+    """Accept strict loopback origins only for requests to a loopback API."""
+
+    if not security.is_loopback():
+        return False
+    if urlsplit(request.host_url).hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    if not re.fullmatch(
+        r"https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?",
+        origin,
+    ):
+        return False
+    try:
+        port = urlsplit(origin).port
+    except ValueError:
+        return False
+    return port is None or 1 <= port <= 65535
+
+
+def create_app(
+    start_monitor: bool = False, *, allow_local_web_preview: bool = False
+) -> Flask:
+    app = Flask(
+        __name__,
+        template_folder=str(WEB_FRONTEND_DIR / "templates"),
+        static_folder=str(WEB_FRONTEND_DIR / "static"),
+    )
     app.config.update(
         SECRET_KEY=config.SECRET_KEY,
         JSON_SORT_KEYS=False,
         START_MONITOR=start_monitor,
+        ALLOW_LOCAL_WEB_PREVIEW=allow_local_web_preview,
         ADMIN_USERNAME=config.ADMIN_USERNAME,
         ADMIN_PASSWORD=config.ADMIN_PASSWORD,
         ALLOW_LOCAL_WRITES=config.ALLOW_LOCAL_WRITES,
@@ -186,6 +216,10 @@ def create_app(start_monitor: bool = False) -> Flask:
         # the actual write request below still requires auth and CSRF.
         if request.method == "OPTIONS":
             return None
+        if endpoint and endpoint.startswith("mobile_data_"):
+            denied = mobile_auth.require_account()
+            if denied is not None:
+                return denied
         if endpoint == "admin_logout":
             if not security.is_admin():
                 return redirect(url_for("index"))
@@ -248,8 +282,11 @@ def create_app(start_monitor: bool = False) -> Flask:
     def security_headers(response):
         nonce = getattr(g, "csp_nonce", "")
         origin = request.headers.get("Origin", "")
-        cors_methods = config.WEB_CORS_PATH_METHODS.get(request.path, ())
-        if re.fullmatch(r"/api/locations/\d+", request.path):
+        cors_path = request.path
+        if cors_path.startswith("/api/mobile/data/"):
+            cors_path = "/api/" + cors_path.removeprefix("/api/mobile/data/")
+        cors_methods = config.WEB_CORS_PATH_METHODS.get(cors_path, ())
+        if re.fullmatch(r"/api/locations/\d+", cors_path):
             cors_methods = ("DELETE",)
         requested_method = request.headers.get(
             "Access-Control-Request-Method", ""
@@ -257,7 +294,11 @@ def create_app(start_monitor: bool = False) -> Flask:
         cors_method_allowed = request.method in cors_methods or (
             request.method == "OPTIONS" and requested_method in cors_methods
         )
-        if origin in config.WEB_CORS_ORIGINS and cors_method_allowed:
+        cors_origin_allowed = origin in config.WEB_CORS_ORIGINS or (
+            app.config["ALLOW_LOCAL_WEB_PREVIEW"]
+            and _is_local_preview_origin(origin)
+        )
+        if cors_origin_allowed and cors_method_allowed:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = ", ".join(
@@ -265,7 +306,7 @@ def create_app(start_monitor: bool = False) -> Flask:
             )
             if request.method == "OPTIONS":
                 response.headers["Access-Control-Allow-Headers"] = (
-                    "Accept, Content-Type, X-CSRF-Token"
+                    "Accept, Content-Type, X-CSRF-Token, Authorization"
                 )
                 response.headers["Access-Control-Max-Age"] = "600"
             vary_values = {
@@ -708,16 +749,16 @@ def create_app(start_monitor: bool = False) -> Flask:
     @app.route("/mobile")
     @app.route("/mobile/")
     def mobile_app():
-        return send_from_directory(config.BASE_DIR / "mobile_app", "index.html")
+        return send_from_directory(MOBILE_WEB_APP_DIR, "index.html")
 
     @app.route("/mobile/<path:filename>")
     def mobile_asset(filename: str):
-        return send_from_directory(config.BASE_DIR / "mobile_app", filename)
+        return send_from_directory(MOBILE_WEB_APP_DIR, filename)
 
     @app.route("/mobile/manifest.webmanifest")
     def mobile_manifest():
         return send_from_directory(
-            config.BASE_DIR / "mobile_app",
+            MOBILE_WEB_APP_DIR,
             "manifest.webmanifest",
             mimetype="application/manifest+json",
         )
@@ -726,7 +767,7 @@ def create_app(start_monitor: bool = False) -> Flask:
     def mobile_service_worker():
         response = make_response(
             send_from_directory(
-                config.BASE_DIR / "mobile_app", "service-worker.js", max_age=0
+                MOBILE_WEB_APP_DIR, "service-worker.js", max_age=0
             )
         )
         response.headers["Service-Worker-Allowed"] = "/"
@@ -903,10 +944,34 @@ def create_app(start_monitor: bool = False) -> Flask:
             return jsonify({"ok": False, "error": "The notification database is unavailable."}), 503
         return jsonify({"ok": True, "message": "Daily notifications are off on this device."})
 
+    app.register_blueprint(mobile_auth.blueprint)
+    mobile_routes = [
+        ("/dashboard", "api_dashboard", ["GET"]),
+        ("/locations", "api_locations", ["GET"]),
+        ("/geocode", "api_geocode", ["GET"]),
+        ("/address/regions", "api_address_regions", ["GET"]),
+        ("/address/provinces", "api_address_provinces", ["GET"]),
+        ("/address/cities", "api_address_cities", ["GET"]),
+        ("/address/barangays", "api_address_barangays", ["GET"]),
+        ("/locations", "api_create_location", ["POST"]),
+        ("/locations/address", "api_create_location_from_address", ["POST"]),
+        ("/locations/<int:location_id>", "api_delete_location", ["DELETE"]),
+        ("/refresh", "api_refresh", ["POST"]),
+    ]
+    for path, view_name, methods in mobile_routes:
+        endpoint_name = "mobile_data_" + view_name
+        app.add_url_rule(
+            "/api/mobile/data" + path, endpoint=endpoint_name,
+            view_func=app.view_functions[view_name], methods=methods,
+        )
+        if view_name in protected_write_endpoints:
+            protected_write_endpoints.add(endpoint_name)
     return app
 
 
-app = create_app(start_monitor=True)
+app = create_app(
+    start_monitor=True, allow_local_web_preview=__name__ == "__main__"
+)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,22 @@ APP_SUBTITLE = (
 )
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-this-secret")
 
+# Mobile email verification. Credentials belong only on the Python server.
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+SMTP_PORT = _env_int("SMTP_PORT", 587)
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+# Google displays app passwords in groups; the separators are not part of the password.
+if SMTP_HOST.lower() == "smtp.gmail.com":
+    SMTP_PASSWORD = "".join(SMTP_PASSWORD.split())
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip() or SMTP_USERNAME
+SMTP_USE_SSL = _env_bool("SMTP_USE_SSL", False)
+MOBILE_OTP_MINUTES = 10
+MOBILE_OTP_RESEND_SECONDS = 60
+MOBILE_OTP_MAX_ATTEMPTS = 5
+MOBILE_OTP_MAX_SENDS_PER_HOUR = 5
+MOBILE_SESSION_DAYS = 7
+
 # ---- Authentication and write protection ----
 # When ADMIN_PASSWORD is set, changing HeatGuard data requires an admin login.
 # Without a password, only requests from the local machine may change data.
@@ -71,6 +87,12 @@ WEB_CORS_PATH_METHODS = {
     "/api/locations": ("GET", "POST"),
     "/api/locations/address": ("POST",),
     "/api/mobile/config": ("GET",),
+    "/api/mobile/auth/session": ("GET",),
+    "/api/mobile/auth/register": ("POST",),
+    "/api/mobile/auth/verify": ("POST",),
+    "/api/mobile/auth/resend": ("POST",),
+    "/api/mobile/auth/login": ("POST",),
+    "/api/mobile/auth/logout": ("POST",),
     "/api/mobile/login": ("POST",),
     "/api/mobile/logout": ("POST",),
     "/api/refresh": ("POST",),

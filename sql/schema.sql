@@ -119,3 +119,44 @@ ON DUPLICATE KEY UPDATE
     `longitude` = VALUES(`longitude`),
     `timezone` = VALUES(`timezone`),
     `is_active` = VALUES(`is_active`);
+
+-- Add verified mobile accounts without changing monitoring data.
+CREATE TABLE IF NOT EXISTS `mobile_users` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `email` VARCHAR(254) NOT NULL,
+    `display_name` VARCHAR(80) NOT NULL,
+    `password_hash` VARCHAR(255) NOT NULL,
+    `email_verified_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_mobile_users_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `mobile_registration_challenges` (
+    `challenge_id` VARCHAR(64) NOT NULL,
+    `email` VARCHAR(254) NOT NULL,
+    `display_name` VARCHAR(80) NOT NULL,
+    `password_hash` VARCHAR(255) NOT NULL,
+    `code_hash` CHAR(64) NOT NULL,
+    `code_expires_at` DATETIME NOT NULL,
+    `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `resend_after` DATETIME NOT NULL,
+    `send_count` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    `send_window_started_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    PRIMARY KEY (`challenge_id`),
+    UNIQUE KEY `uq_mobile_registration_email` (`email`),
+    KEY `idx_mobile_registration_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `mobile_user_sessions` (
+    `token_hash` CHAR(64) NOT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    PRIMARY KEY (`token_hash`),
+    KEY `idx_mobile_sessions_expiry` (`expires_at`),
+    KEY `idx_mobile_sessions_user` (`user_id`),
+    CONSTRAINT `fk_mobile_sessions_user` FOREIGN KEY (`user_id`)
+        REFERENCES `mobile_users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

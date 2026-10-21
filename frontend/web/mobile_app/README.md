@@ -33,20 +33,20 @@ directs the user to official advisories.
    PowerShell:
 
    ```powershell
-   Push-Location mobile_app
-   & ..\.venv\Scripts\vapid.exe --gen
-   & ..\.venv\Scripts\vapid.exe --applicationServerKey
+   Push-Location frontend\web\mobile_app
+   & ..\..\..\.venv\Scripts\vapid.exe --gen
+   & ..\..\..\.venv\Scripts\vapid.exe --applicationServerKey
    Pop-Location
    ```
 
-   On macOS/Linux, use `../.venv/bin/vapid` in place of
+   On macOS/Linux, use `../../../.venv/bin/vapid` in place of
    `..\.venv\Scripts\vapid.exe`. Save the value printed by
    `--applicationServerKey`; it is the public application server key.
 3. Set the following values in the root `.env`:
 
    ```ini
    VAPID_PUBLIC_KEY=the_value_printed_by_vapid
-   VAPID_PRIVATE_KEY_PATH=C:\HeatGuard\mobile_app\private_key.pem
+   VAPID_PRIVATE_KEY_PATH=C:\HeatGuard\frontend\web\mobile_app\private_key.pem
    VAPID_CLAIMS_EMAIL=admin@example.com
    SESSION_COOKIE_SECURE=1
    ```

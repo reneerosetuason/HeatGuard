@@ -4,6 +4,7 @@
     <!-- HTTP is enabled for local development; use HTTPS and disable it for production. -->
     <application
         android:label="HeatGuard"
+        android:allowBackup="false"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

@@ -35,9 +35,9 @@ hardware, no sensor, no SMS credits, and no paid services**.
   **never** shown as "safe", and forecast hours are never stored as history.
 - **Background monitoring** — a scheduler thread keeps collecting and alerting
   even when no browser is open (single-process deployment).
-- **Installable phone app** — the separate `mobile_app/` PWA shows local
+- **Installable phone app** — the `frontend/web/mobile_app/` PWA shows local
   weather and recommendations, with an optional daily device notification.
-- **Native mobile app** — the separate `mobile_flutter/` Flutter project includes
+- **Native mobile app** — the `frontend/flutter/` Flutter project includes
   location management, current conditions, history charts, active and recent
   alerts, recommendations, and daily Android/iOS device notifications.
 
@@ -107,21 +107,18 @@ HeatGuard/
 │   ├── db.py                  # MySQL access layer (readings, alerts, status)
 │   ├── monitoring.py          # Monitor cycle + background scheduler
 │   └── dashboard.py           # Builds the dashboard/JSON payload
-├── templates/
-│   ├── base.html
-│   ├── dashboard.html
-│   └── error.html
-├── static/
-│   ├── css/dashboard.css
-│   └── js/dashboard.js
-├── mobile_app/                # Installable PWA and browser push notifications
-├── mobile_flutter/             # Native Flutter app for Android and iOS
+├── frontend/
+│   ├── web/
+│   │   ├── templates/         # Flask-rendered website pages
+│   │   ├── static/            # Website CSS and JavaScript
+│   │   └── mobile_app/        # Installable PWA and browser push notifications
+│   └── flutter/               # Native Flutter app for Android and iOS
 └── tests/                     # pytest / unittest suite
 ```
 
 Additional files: `services/security.py` (auth/CSRF/rate limits),
 `services/pagasa_validation.py` (PAGASA comparison), `run_production.py`
-(Waitress), `templates/admin_login.html`, `sql/create_app_user.sql`,
+(Waitress), `frontend/web/templates/admin_login.html`, `sql/create_app_user.sql`,
 `requirements-dev.txt`, `pytest.ini`, and `.github/workflows/ci.yml`.
 
 ---
@@ -195,7 +192,8 @@ python manage.py init-db
 ```
 
 This creates the database, the `locations`, `readings`, `alerts`,
-`monitoring_status`, and `mobile_push_subscriptions` tables, plus the seed locations. It is safe to run again
+`monitoring_status`, `mobile_push_subscriptions`, `mobile_users`,
+`mobile_registration_challenges`, and `mobile_user_sessions` tables, plus the seed locations. It is safe to run again
 (`CREATE ... IF NOT EXISTS`, idempotent seeds).
 
 > Equivalent manual command: `mysql -u root -p < sql/schema.sql`
@@ -210,13 +208,23 @@ Then open <http://127.0.0.1:5000>.
 
 Open <http://127.0.0.1:5000/mobile/> on a phone to use the installable mobile
 app. For daily device notifications, configure VAPID keys and HTTPS as
-described in [mobile_app/README.md](mobile_app/README.md), run
+described in [frontend/web/mobile_app/README.md](frontend/web/mobile_app/README.md), run
 `python manage.py init-db` to create the subscription table, and enable
 notifications in the app.
 
-For the native Android/iOS client, follow [mobile_flutter/README.md](mobile_flutter/README.md).
+For the native Android/iOS client, follow [frontend/flutter/README.md](frontend/flutter/README.md).
 It schedules a daily local notification using the latest weather and
 recommendation downloaded by the app.
+
+On Windows, run `.\run_mobile.ps1` from the repository root to start the Python
+API and the Flutter Chrome preview together. It uses the existing `.venv`,
+checks the database and browser connection settings, and installs Flutter
+packages before opening `http://localhost:7357`. Keep its terminal open.
+
+The Flutter app requires a verified email account. For an existing database,
+run `.\.venv\Scripts\python.exe manage.py init-mobile-auth`, configure the Gmail
+SMTP sender in `.env`, and restart the API. The complete setup is in
+[the Flutter account guide](frontend/flutter/README.md#account-and-email-setup).
 
 - On first start the scheduler fetches current conditions for every active
   location and stores the first readings/alerts.
@@ -273,6 +281,13 @@ MAE, RMSE, bias, percentage within 1/2 °C, and category agreement.
 | GET | `/api/health` | Health check: database + scheduler status |
 | GET | `/mobile/` | Installable mobile web app |
 | GET | `/api/mobile/config` | Notification setup and CSRF token for the mobile app |
+| GET | `/api/mobile/auth/session` | Restore a verified mobile account session and obtain a CSRF token |
+| POST | `/api/mobile/auth/register` | Send an email verification code for a pending registration |
+| POST | `/api/mobile/auth/resend` | Resend a registration code, subject to email limits |
+| POST | `/api/mobile/auth/verify` | Verify the code, create the account, and sign in |
+| POST | `/api/mobile/auth/login` | Sign in with a verified email and password |
+| POST | `/api/mobile/auth/logout` | Revoke the mobile account session |
+| GET/POST/DELETE | `/api/mobile/data/*` | Flutter data routes requiring a verified account; writes retain administrator checks |
 | POST | `/api/mobile/push/subscribe` | Save this device's daily notification settings |
 | POST | `/api/mobile/push/unsubscribe` | Disable notifications for this device |
 | GET/POST | `/admin/login` | Admin sign-in (required when `ADMIN_PASSWORD` is set) |
@@ -339,6 +354,9 @@ duplicate alerts.
   `consecutive_failures`.
 - **mobile_push_subscriptions** — per-device browser push endpoint, selected
   location, local reminder time/time zone, and last successful delivery date.
+- **mobile_users**: verified email, display name, password hash, and verification date.
+- **mobile_registration_challenges**: pending account details, hashed OTP, expiry, attempt count, and resend limits.
+- **mobile_user_sessions**: hashed session tokens, account reference, and expiry.
 
 ---
 
@@ -395,7 +413,7 @@ runs the full suite.
   API calls and alerts are not duplicated.
 - Daily push notifications require HTTPS, configured VAPID keys, a running
   scheduler process, and permission from the device's browser/operating system.
-- There is no SMS or email notification channel.
+- Heat alerts have no SMS or email delivery channel. Email is used for Flutter account verification.
 - Address choices come from a bundled PSGC snapshot (2026-04-13). Update the
   pinned `psgc` package to pick up newly created or renamed barangays.
 
