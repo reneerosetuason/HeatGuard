@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'daily_reminder_history.dart';
 
 @pragma('vm:entry-point')
 Future<void> routineBackgroundMessage(RemoteMessage message) async {
@@ -48,7 +49,14 @@ class RoutinePushService {
           ),
           onDidReceiveNotificationResponse: (response) {
             final id = int.tryParse(response.payload ?? '');
-            if (id != null && !_closed) onOpen(id);
+            if (!_closed &&
+                (id != null ||
+                    DailyReminderHistory.matchesPayload(
+                      response.payload,
+                      accountId,
+                    ))) {
+              onOpen(id);
+            }
           },
         )
         .timeout(_timeout);
@@ -146,7 +154,11 @@ class RoutinePushService {
       final localId = int.tryParse(launch?.notificationResponse?.payload ?? '');
       if (!_closed &&
           launch?.didNotificationLaunchApp == true &&
-          localId != null) {
+          (localId != null ||
+              DailyReminderHistory.matchesPayload(
+                launch?.notificationResponse?.payload,
+                accountId,
+              ))) {
         onOpen(localId);
       }
     }

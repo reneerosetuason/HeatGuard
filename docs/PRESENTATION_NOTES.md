@@ -68,6 +68,7 @@ flowchart TD
     FCM -->|Android push| Mobile
     API -->|Saved notifications| Inbox[In-app notification inbox]
     Inbox --> Mobile
+    Mobile <--> LocalHistory[Daily reminder history on the device]
 ```
 
 The phone communicates with Flask rather than connecting directly to MySQL. The backend holds the external-service credentials, performs authorization, and owns the scheduling logic.
@@ -135,7 +136,7 @@ If Groq fails, reaches a limit, or returns unsuitable text, activity-aware fallb
 | --- | --- | --- |
 | Dashboard heat alert | Weather monitoring detects a warning/category change | Stored server alert displayed in the dashboard |
 | Routine push reminder | A user's scheduled activity becomes due | Server prepares AI/fallback advice, saves an inbox item, and sends it through FCM |
-| Local daily reminder | The user enables a daily notification time | Uses the most recently loaded dashboard content; it does not independently fetch live weather at delivery time |
+| Local daily reminder | The user enables a daily notification time | Follows the dashboard's selected address, uses its most recently loaded content, and records due occurrences in the phone's notification history |
 | Standalone weather advisory | A one-time advisory was manually sent during development | That test used local guidance; a recurring automatic weather-advisory broadcast service is future work |
 
 For routine pushes, preparation runs every five seconds and starts up to 90 seconds before the reminder is due. A separate delivery loop checks every second, with worker pools separating preparation from sending. These intervals reduce server-side delays; they are not a promise of exact-second arrival on a phone.
@@ -144,7 +145,9 @@ The database tracks the scheduled time, preparation time, retries, and FCM accep
 
 Android push can arrive while the app is in the background or not running normally, provided the app has registered, notifications are allowed, the device has connectivity, and the backend is running. Android **Force stop** can prevent further messages until the app is reopened, as documented by [Firebase for Flutter](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages). Network conditions and power management can delay messages; [high priority delivery](https://firebase.google.com/docs/cloud-messaging/android-message-priority) is an attempt at prompt delivery, not a delivery-time guarantee.
 
-The optional local daily reminder is scheduled inexactly by Android and can repeat previously loaded content until the application refreshes it. Do not present it as the live, AI-powered routine system.
+The optional local daily reminder follows the address selected in the dashboard. Switching addresses replaces the pending reminder even if the locations share the same weather timestamp, and Settings shows which address it uses. Due daily occurrences are saved in a device-local inbox, merged with server notifications when the bell is opened or refreshed, and labeled **Daily device reminder**. The latest 100 daily entries and their read state are isolated by server/account and remain on that phone. Changing the location or reminder time preserves earlier entries. An entry records a scheduled occurrence, not confirmed banner display; entries due while the app was closed are reconciled when the app returns. Older versions did not record this history, so earlier reminders cannot be reconstructed.
+
+The local reminder is scheduled inexactly by Android and can repeat previously loaded content until the application refreshes it. It does not independently fetch current weather at delivery time. Do not present it as the live, AI-powered routine system.
 
 ## 9. Database design
 

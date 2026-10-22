@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/heatguard_models.dart';
 import '../models/mobile_account.dart';
 import '../services/daily_notification_service.dart';
+import '../services/daily_reminder_history.dart';
 import '../services/routines_controller.dart';
 import '../widgets/notification_sidebar.dart';
 import 'routines_screen.dart';
@@ -125,10 +126,17 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (!mounted) return;
       if (widget.account != null) {
+        final dailyHistory = DailyReminderHistory(
+          baseUrl: _apiBaseUrl,
+          accountId: widget.account!.id,
+        );
+        _notifications.history = dailyHistory;
+        _notifications.onOpenInbox = _openInbox;
         _routines = RoutinesController(
           api: _api,
           baseUrl: _apiBaseUrl,
           accountId: widget.account!.id,
+          dailyHistory: dailyHistory,
         )..onOpenInbox = _openInbox;
         setState(() {});
       }
@@ -167,6 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         setState(() {});
       }
       await _loadDashboard();
+      if (mounted) await _notifications.openInboxIfLaunched();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -219,7 +228,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         hours: _historyHours,
       );
       if (!mounted) return;
-      final previousReadingAt = _dashboard?.current?['observed_at'];
+      final previousDashboard = _dashboard;
       setState(() {
         _locations = locations;
         _selectedLocationId = dashboard.location.id;
@@ -231,7 +240,12 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (_dailyReminderEnabled &&
           _notificationPermission &&
-          previousReadingAt != dashboard.current?['observed_at']) {
+          (previousDashboard == null ||
+              previousDashboard.location.id != dashboard.location.id ||
+              previousDashboard.location.name != dashboard.location.name ||
+              previousDashboard.dataStatus != dashboard.dataStatus ||
+              previousDashboard.current?['observed_at'] !=
+                  dashboard.current?['observed_at'])) {
         await _scheduleDailyReminder(dashboard);
       }
     } catch (error) {
@@ -956,6 +970,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               notificationError: _notificationError,
               dashboardAvailable: dashboard?.dataStatus == 'ok',
+              locationName: dashboard?.location.name,
               onChanged: _toggleDailyReminder,
               onChooseTime: _chooseReminderTime,
             ),
@@ -2284,6 +2299,7 @@ class _ReminderCard extends StatelessWidget {
     required this.reminderTime,
     required this.notificationError,
     required this.dashboardAvailable,
+    required this.locationName,
     required this.onChanged,
     required this.onChooseTime,
   });
@@ -2294,6 +2310,7 @@ class _ReminderCard extends StatelessWidget {
   final TimeOfDay reminderTime;
   final String? notificationError;
   final bool dashboardAvailable;
+  final String? locationName;
   final ValueChanged<bool> onChanged;
   final VoidCallback onChooseTime;
 
@@ -2308,7 +2325,7 @@ class _ReminderCard extends StatelessWidget {
                   : enabled && !dashboardAvailable
                   ? 'Connect to HeatGuard once to add weather to the daily update.'
                   : enabled
-                  ? 'Weather and a safety tip will appear in your device notifications.'
+                  ? 'Weather and a safety tip for your selected location will appear in your device notifications.'
                   : 'Daily weather and safety reminders are paused.');
 
     return Card(
@@ -2383,6 +2400,19 @@ class _ReminderCard extends StatelessWidget {
                 ],
               ),
             ],
+            if (enabled && locationName != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2, top: 5),
+                  child: Text(
+                    'Reminder location: $locationName',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: HeatGuardColors.ink,
+                    ),
+                  ),
+                ),
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -2404,7 +2434,7 @@ class _ReminderCard extends StatelessWidget {
                 child: Padding(
                   padding: EdgeInsets.only(left: 2, top: 6),
                   child: Text(
-                    'The scheduled message uses the latest reading saved by the app.',
+                    'Uses the latest reading saved for this address. Switch the dashboard location to change it.',
                     style: TextStyle(
                       color: HeatGuardColors.muted,
                       fontSize: 11,

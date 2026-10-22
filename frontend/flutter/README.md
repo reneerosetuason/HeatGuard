@@ -14,9 +14,11 @@ This Flutter project is kept in `frontend/flutter`. It provides the HeatGuard da
 - Tap or drag across a chart to inspect a reading; screen readers can increase or decrease the selected reading.
 - Review recent heat alerts, data freshness, update errors, and the weather and PAGASA heat-index sources.
 - Refresh weather data, pull to refresh, and automatically reload the dashboard while the app is open.
-- Schedule a daily Android or iOS notification with the latest loaded weather and a safety recommendation.
+- Schedule a daily Android or iOS notification for the location selected in the dashboard, with the latest loaded weather and a safety recommendation. Changing the location replaces the scheduled reminder even when both places have the same weather timestamp. Settings shows the reminder's address; stale or unavailable readings use an unknown-conditions message.
 - Save personal recurring routines, preview weather advice, and receive Android Firebase push reminders with optional Groq personalization.
 - Open the notification bell for a persistent sidebar inbox, unread counts, and mark-as-read controls.
+
+Daily device reminders also appear in the notification bell's history, labeled **Daily device reminder**. The phone saves a reminder snapshot and adds each occurrence to its local inbox when it becomes due, including occurrences due while the app was closed. Opening or refreshing the inbox reconciles these entries with routine notifications from the server. Future reminders stay hidden, changing the address/time preserves past entries, and pausing cancels future occurrences without clearing history. The latest 100 daily entries and their read state are stored on this phone, separately for each server and signed-in account; they do not sync to another device. History records scheduled occurrences, not confirmation that Android displayed a banner. Previously sent daily reminders cannot be recovered because older app versions did not record them.
 
 Signed-in users can add, view, refresh, and remove their own private addresses without an administrator login. Address and routine writes require a verified account and CSRF protection. The shared web dashboard and its monitoring locations retain their administrator/host restrictions.
 

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -140,6 +141,8 @@ class _TestApi extends HeatGuardApi {
 }
 
 void main() {
+  final scheduledReminders = <Map<dynamic, dynamic>>[];
+
   setUpAll(() async {
     // Exercise real text layout, including styles without an explicit font.
     final config =
@@ -179,6 +182,8 @@ void main() {
   });
 
   setUp(() {
+    AndroidFlutterLocalNotificationsPlugin.registerWith();
+    scheduledReminders.clear();
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.withData({'daily_reminder': false});
     final messenger =
@@ -189,7 +194,14 @@ void main() {
     );
     messenger.setMockMethodCallHandler(
       const MethodChannel('dexterous.com/flutter/local_notifications'),
-      (_) async => true,
+      (call) async {
+        if (call.method == 'zonedSchedule') {
+          scheduledReminders.add(
+            Map<dynamic, dynamic>.from(call.arguments as Map),
+          );
+        }
+        return true;
+      },
     );
   });
 
@@ -338,6 +350,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.lastLocation, 2);
     expect(find.text('Cebu City'), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'daily reminder follows location switches even with the same reading time',
+    (tester) async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({'daily_reminder': true});
+      final api = _TestApi();
+      await mount(tester, api);
+      expect(scheduledReminders, hasLength(1));
+      expect(scheduledReminders.last['title'], contains('Quezon City'));
+      final reminderId = scheduledReminders.last['id'];
+
+      for (final location in ['Cebu City', 'Quezon City']) {
+        final previousCount = scheduledReminders.length;
+        await tester.tap(find.byType(DropdownButtonFormField<int>).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(location).last);
+        await tester.pumpAndSettle();
+        expect(scheduledReminders, hasLength(previousCount + 1));
+        expect(scheduledReminders.last['id'], reminderId);
+        expect(scheduledReminders.last['title'], contains(location));
+      }
+
+      await tab(tester, 'Settings');
+      expect(find.text('Reminder location: Quezon City'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('daily reminder drops stale weather without a new reading time', (
+    tester,
+  ) async {
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.withData({'daily_reminder': true});
+    final api = _TestApi();
+    await mount(tester, api);
+    expect(scheduledReminders.last['body'], contains('36.4'));
+
+    api.stale = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(scheduledReminders, hasLength(2));
+    expect(scheduledReminders.last['body'], contains('conditions are unknown'));
+    expect(scheduledReminders.last['body'], isNot(contains('36.4')));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

@@ -73,11 +73,19 @@ class NotificationSidebar extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            if (controller.error != null && controller.notices.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  'Showing saved notifications. ${controller.error}',
+                  style: const TextStyle(color: HeatGuardColors.muted),
+                ),
+              ),
             const Divider(height: 1),
             Expanded(
               child: controller.loading
                   ? const Center(child: CircularProgressIndicator())
-                  : controller.error != null
+                  : controller.error != null && controller.notices.isEmpty
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
@@ -118,7 +126,7 @@ class NotificationSidebar extends StatelessWidget {
                             ),
                             SizedBox(height: 10),
                             Text(
-                              'Weather reminders will appear here when your routines are due.',
+                              'Daily device reminders and routine notifications will appear here when they are due.',
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -202,7 +210,9 @@ class NotificationSidebar extends StatelessWidget {
                                     runSpacing: 4,
                                     children: [
                                       Text(
-                                        notice.aiGenerated
+                                        notice.isDailyDeviceReminder
+                                            ? 'Daily device reminder'
+                                            : notice.aiGenerated
                                             ? 'AI-personalized'
                                             : notice.weather == null
                                             ? 'Weather unavailable'

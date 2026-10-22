@@ -8,12 +8,14 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 import 'package:heatguard_mobile/models/heatguard_models.dart';
 import 'package:heatguard_mobile/screens/routines_screen.dart';
 import 'package:heatguard_mobile/services/heatguard_api.dart';
+import 'package:heatguard_mobile/services/daily_reminder_history.dart';
 import 'package:heatguard_mobile/services/routines_controller.dart';
 import 'package:heatguard_mobile/theme/heatguard_theme.dart';
 
 class TestApi extends HeatGuardApi {
   final routines = <Map<String, dynamic>>[];
   bool read = false;
+  int readRequests = 0;
   Map<String, String>? saved;
   @override
   Future<Map<String, dynamic>> accountSession(String baseUrl) async => {
@@ -76,6 +78,7 @@ class TestApi extends HeatGuardApi {
     String baseUrl, {
     int? id,
   }) async {
+    readRequests++;
     read = true;
     return {'ok': true};
   }
@@ -128,6 +131,7 @@ void main() {
     TestApi api, {
     double width = 390,
     double scale = 1,
+    DailyReminderHistory? dailyHistory,
   }) async {
     tester.view.physicalSize = Size(width, 844);
     tester.view.devicePixelRatio = 1;
@@ -137,6 +141,7 @@ void main() {
       api: api,
       baseUrl: 'http://example.test',
       accountId: 1,
+      dailyHistory: dailyHistory,
     );
     await controller.reload();
     await tester.pumpWidget(
@@ -216,6 +221,44 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('daily reminders share the inbox and retain read state', (
+    tester,
+  ) async {
+    var now = DateTime.utc(2026, 10, 22, 1, 59);
+    final history = DailyReminderHistory(
+      baseUrl: 'http://example.test',
+      accountId: 1,
+      now: () => now,
+    );
+    await history.schedule(
+      firstDelivery: DateTime.utc(2026, 10, 22, 2),
+      timezone: 'Asia/Manila',
+      hour: 10,
+      minute: 0,
+      title: 'HeatGuard · Manila',
+      body: 'Daily weather for Manila.',
+    );
+    now = DateTime.utc(2026, 10, 22, 2);
+    final api = TestApi();
+    final controller = await mount(tester, api, dailyHistory: history);
+    await tester.tap(find.byTooltip('Notifications, 2 unread'));
+    await tester.pumpAndSettle();
+    expect(find.text('School soon'), findsOneWidget);
+    expect(find.text('HeatGuard · Manila'), findsOneWidget);
+    expect(find.text('Daily device reminder'), findsOneWidget);
+    await tester.tap(find.text('Daily weather for Manila.'));
+    await tester.pumpAndSettle();
+    expect(api.readRequests, 0);
+    expect(controller.unread, 1);
+    expect((await history.inbox()).single.read, isTrue);
+    await tester.tap(find.text('Mark all read'));
+    await tester.pumpAndSettle();
+    expect(api.readRequests, 1);
+    expect(controller.unread, 0);
+    expect(find.text('0 unread'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('routine editor supports small screens and larger text', (
     tester,

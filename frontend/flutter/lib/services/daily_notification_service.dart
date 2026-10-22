@@ -5,15 +5,22 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/heatguard_models.dart';
+import 'daily_reminder_history.dart';
 
 class DailyNotificationService {
-  DailyNotificationService() : _plugin = FlutterLocalNotificationsPlugin();
+  DailyNotificationService({DateTime Function()? now})
+    : _plugin = FlutterLocalNotificationsPlugin(),
+      _now = now ?? DateTime.now;
 
   static const int _notificationId = 2317;
   static const String _channelId = 'heatguard_daily';
 
   final FlutterLocalNotificationsPlugin _plugin;
+  final DateTime Function() _now;
   bool _initialized = false;
+  bool _launchHandled = false;
+  DailyReminderHistory? history;
+  VoidCallback? onOpenInbox;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -34,7 +41,16 @@ class DailyNotificationService {
         requestSoundPermission: false,
       ),
     );
-    await _plugin.initialize(settings);
+    await _plugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: (response) {
+        final accountId = history?.accountId;
+        if (accountId != null &&
+            DailyReminderHistory.matchesPayload(response.payload, accountId)) {
+          onOpenInbox?.call();
+        }
+      },
+    );
     _initialized = true;
   }
 
@@ -70,7 +86,7 @@ class DailyNotificationService {
   }) async {
     if (kIsWeb) return;
     if (!_initialized) await initialize();
-    final now = tz.TZDateTime.now(tz.local);
+    final now = tz.TZDateTime.from(_now(), tz.local);
     var firstDelivery = tz.TZDateTime(
       tz.local,
       now.year,
@@ -112,12 +128,40 @@ class DailyNotificationService {
       ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
+      payload: history?.payload,
+    );
+    await history?.schedule(
+      firstDelivery: firstDelivery,
+      timezone: tz.local.name,
+      hour: hour,
+      minute: minute,
+      title: _titleFor(dashboard),
+      body: _bodyFor(dashboard),
+      weather: dashboard.dataStatus == 'ok' ? dashboard.current : null,
     );
   }
 
   Future<void> cancelDaily() async {
     if (kIsWeb) return;
     await _plugin.cancel(_notificationId);
+    await history?.cancel();
+  }
+
+  Future<void> openInboxIfLaunched() async {
+    if (kIsWeb || !_initialized || _launchHandled || history == null) return;
+    _launchHandled = true;
+    try {
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp == true &&
+          DailyReminderHistory.matchesPayload(
+            launch?.notificationResponse?.payload,
+            history!.accountId,
+          )) {
+        onOpenInbox?.call();
+      }
+    } catch (_) {
+      // A launch-details failure must not disable scheduled daily reminders.
+    }
   }
 
   String _titleFor(HeatDashboard dashboard) =>

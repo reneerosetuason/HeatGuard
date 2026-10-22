@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/routine_models.dart';
 import 'heatguard_api.dart';
+import 'daily_reminder_history.dart';
 import 'routine_push_service.dart';
 
 class RoutinesController extends ChangeNotifier {
@@ -11,17 +12,28 @@ class RoutinesController extends ChangeNotifier {
     required this.baseUrl,
     required this.accountId,
     RoutinePushService? push,
+    DailyReminderHistory? dailyHistory,
     DateTime Function()? now,
   }) : _push = push ?? RoutinePushService(),
+       _dailyHistory =
+           dailyHistory ??
+           DailyReminderHistory(
+             baseUrl: baseUrl,
+             accountId: accountId,
+             now: now,
+           ),
        _now = now ?? DateTime.now;
   final HeatGuardApi api;
   final String baseUrl;
   final int accountId;
   final RoutinePushService _push;
   final DateTime Function() _now;
+  final DailyReminderHistory _dailyHistory;
   final _preferences = SharedPreferencesAsync();
   List<HeatRoutine> routines = [];
   List<RoutineNotice> notices = [];
+  List<RoutineNotice> _serverNotices = [], _dailyNotices = [];
+  int _serverUnread = 0;
   int unread = 0;
   bool loading = true,
       busy = false,
@@ -56,6 +68,13 @@ class RoutinesController extends ChangeNotifier {
     if (_closed || _refreshing) return;
     _refreshing = true;
     try {
+      _dailyNotices = await _dailyHistory.inbox();
+      if (_closed) return;
+      _mergeNotices();
+      if (notices.isNotEmpty) {
+        loading = false;
+        _changed();
+      }
       final data = await api.fetchRoutines(baseUrl);
       final inbox = await api.fetchNotifications(baseUrl);
       if (_closed) return;
@@ -63,11 +82,12 @@ class RoutinesController extends ChangeNotifier {
           .cast<Map<String, dynamic>>()
           .map(HeatRoutine.fromJson)
           .toList();
-      notices = (inbox['notifications'] as List)
+      _serverNotices = (inbox['notifications'] as List)
           .cast<Map<String, dynamic>>()
           .map(RoutineNotice.fromJson)
           .toList();
-      unread = (inbox['unread_count'] as num).toInt();
+      _serverUnread = (inbox['unread_count'] as num).toInt();
+      _mergeNotices();
       pushAvailable = data['push_available'] == true;
       remindersEnabled = data['reminders_enabled'] != false;
       error = null;
@@ -78,6 +98,17 @@ class RoutinesController extends ChangeNotifier {
       _refreshing = false;
       _changed();
     }
+  }
+
+  void _mergeNotices() {
+    notices = [..._serverNotices, ..._dailyNotices]
+      ..sort(
+        (a, b) => (b.scheduledFor ?? b.createdAt).compareTo(
+          a.scheduledFor ?? a.createdAt,
+        ),
+      );
+    unread =
+        _serverUnread + _dailyNotices.where((notice) => !notice.read).length;
   }
 
   String message(Object failure) => failure is HeatGuardApiException
@@ -141,6 +172,16 @@ class RoutinesController extends ChangeNotifier {
   }
 
   Future<void> markRead({int? id}) async {
+    _requireOpen();
+    if (id == null || id < 0) {
+      await _dailyHistory.markRead(id: id);
+      _requireOpen();
+      _dailyNotices = await _dailyHistory.inbox();
+      _requireOpen();
+      _mergeNotices();
+      _changed();
+      if (id != null || _serverUnread == 0) return;
+    }
     await api.accountSession(baseUrl);
     _requireOpen();
     await api.readNotification(baseUrl, id: id);
