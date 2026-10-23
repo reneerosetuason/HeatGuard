@@ -253,7 +253,7 @@ For the Sleep-at-2:00-AM example during a daytime presentation, explain its prev
 
 ## 13. Testing and evaluation
 
-The project includes Python tests for weather validation, heat-index/risk logic, account verification, access control, private-location isolation, routine timing, AI fallback, and notification processing. Flutter tests cover UI behavior and layout, alongside static analysis. Previously recorded development checks passed 249 Python tests and 22 Flutter tests, with Flutter analysis clean; these checks were not rerun just to prepare these notes.
+The project includes Python tests for weather validation, heat-index/risk logic, account verification, access control, private-location isolation, routine timing, AI fallback, and notification processing. Flutter tests cover UI behavior and layout, alongside static analysis. On October 23, 2026, checks passed all 249 Python tests and 33 Flutter tests, with Flutter analysis clean. See [PRESENTATION_READINESS.md](PRESENTATION_READINESS.md) for the live integration and physical phone checks, resolved setup issues, and demonstration checklist.
 
 `python manage.py validate-pagasa` provides an optional comparison against published station temperature/humidity/heat-index data. It reports metrics including mean absolute error, RMSE, and category agreement. This evaluates agreement using the same station inputs; it does not establish the accuracy of Open-Meteo forecasts for a user's home. Report numerical evaluation results only after collecting and dating a real report.
 
@@ -307,6 +307,8 @@ It is an independent informational application using weather estimates and PAGAS
 The backend scheduler, database, and internet connectivity. The phone must be registered and permit notifications. Groq is optional because a fallback exists; FCM is required for these remote Android pushes.
 
 ## 16. Useful code references
+
+For a task-to-file map with the main functions and Flutter components, see [CODE_CHEATSHEET.md](CODE_CHEATSHEET.md).
 
 | Area | Files |
 | --- | --- |
